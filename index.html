@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#05070d">
+<meta name="description" content="Simulateur de trajectoires d'astéroïdes dans le système solaire, avec éphémérides képlériennes et intégration numérique.">
+<title>ORRERY — Simulateur de trajectoires</title>
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<canvas id="sky"></canvas>
+
+<!-- ============ TOP HUD ============ -->
+<header class="hud-top">
+  <div class="brand">
+    <span class="brand-mark">◎</span>
+    <div class="brand-text">
+      <span class="brand-title">ORRERY</span>
+      <span class="brand-sub" id="epochReadout">— chargement —</span>
+    </div>
+  </div>
+  <div class="hud-top-actions">
+    <button class="icon-btn" id="btnInfo" aria-label="Informations">i</button>
+    <button class="icon-btn" id="btnRecenter" aria-label="Recentrer sur le Soleil">⊙</button>
+  </div>
+</header>
+
+<!-- ============ SELECTION / LOCK PILL ============ -->
+<div class="lock-pill hidden" id="lockPill">
+  <span id="lockLabel">Terre</span>
+  <button id="btnLockToggle" class="pill-toggle" aria-pressed="false">Suivre</button>
+  <button id="btnLockClose" aria-label="Fermer">✕</button>
+</div>
+
+<!-- ============ BODY QUICK-SELECT DOCK ============ -->
+<nav class="body-dock" id="bodyDock" aria-label="Accès rapide aux astres"></nav>
+
+<!-- ============ BOTTOM TIME PANEL ============ -->
+<footer class="time-panel">
+  <div class="time-readout">
+    <div class="date-big" id="dateBig">--</div>
+    <div class="date-offset" id="dateOffset">t = 0</div>
+  </div>
+
+  <div class="time-row">
+    <button class="chip" id="btnPause">⏸ Pause</button>
+    <button class="chip" id="btnNow">⦿ Maintenant</button>
+    <button class="chip ghost" id="btnAsteroids">☄ Astéroïdes</button>
+  </div>
+
+  <div class="slider-block">
+    <label class="slider-label" for="speedSlider">
+      <span>Flux du temps</span>
+      <span id="speedValue">0 j/s</span>
+    </label>
+    <input type="range" id="speedSlider" min="-400" max="400" step="1" value="0">
+    <div class="speed-presets" id="speedPresets"></div>
+  </div>
+
+  <div class="slider-block">
+    <label class="slider-label" for="scrubSlider">
+      <span>Naviguer dans le temps</span>
+      <span id="scrubValue">±0 j</span>
+    </label>
+    <input type="range" id="scrubSlider" min="-3650" max="3650" step="1" value="0">
+  </div>
+</footer>
+
+<!-- ============ ZOOM CONTROLS (mobile-friendly) ============ -->
+<div class="zoom-dock">
+  <button class="icon-btn" id="btnZoomIn" aria-label="Zoomer">＋</button>
+  <button class="icon-btn" id="btnZoomOut" aria-label="Dézoomer">－</button>
+</div>
+
+<!-- ============ ASTEROID SHEET ============ -->
+<div class="sheet-backdrop hidden" id="sheetBackdrop"></div>
+<div class="sheet hidden" id="asteroidSheet" role="dialog" aria-label="Simulation d'astéroïde">
+  <div class="sheet-handle"></div>
+  <div class="sheet-header">
+    <h2>Simulation d'astéroïde</h2>
+    <button class="icon-btn" id="btnCloseSheet" aria-label="Fermer">✕</button>
+  </div>
+
+  <div class="sheet-body">
+    <p class="hint">
+      Définissez un état initial héliocentrique. La trajectoire est intégrée numériquement
+      (Runge-Kutta 4) sous l'attraction gravitationnelle du Soleil et des planètes.
+    </p>
+
+    <div class="field-grid">
+      <label>Distance au Soleil (UA)
+        <input type="number" id="fAst_dist" value="1.30" step="0.01" min="0.05" max="50">
+      </label>
+      <label>Vitesse (km/s)
+        <input type="number" id="fAst_speed" value="24" step="0.1" min="0.1" max="80">
+      </label>
+      <label>Angle de trajectoire (°)
+        <input type="number" id="fAst_angle" value="95" step="1" min="-180" max="180">
+      </label>
+      <label>Inclinaison (°)
+        <input type="number" id="fAst_incl" value="8" step="0.5" min="-90" max="90">
+      </label>
+      <label>Longitude au périhélie (°)
+        <input type="number" id="fAst_lon" value="40" step="1" min="0" max="360">
+      </label>
+      <label>Masse (kg)
+        <input type="number" id="fAst_mass" value="2.2e11" step="any" min="1">
+      </label>
+    </div>
+
+    <div class="field-row">
+      <label>Nom
+        <input type="text" id="fAst_name" value="2026 AA" maxlength="18">
+      </label>
+      <label>Fenêtre d'intégration (années)
+        <input type="number" id="fAst_span" value="3" min="0.5" max="15" step="0.5">
+      </label>
+    </div>
+
+    <div class="btn-row">
+      <button class="btn-primary" id="btnAddAsteroid">Calculer la trajectoire</button>
+    </div>
+
+    <div class="variation-block">
+      <label class="switch-row">
+        <input type="checkbox" id="fAst_varToggle">
+        <span>Famille de trajectoires (± incertitude)</span>
+      </label>
+      <div class="field-row" id="variationParams">
+        <label>Marge (%)
+          <input type="number" id="fAst_margin" value="5" min="0.5" max="30" step="0.5">
+        </label>
+        <label>Échantillons
+          <input type="number" id="fAst_samples" value="24" min="4" max="60" step="2">
+        </label>
+      </div>
+    </div>
+
+    <div class="btn-row">
+      <button class="btn-secondary" id="btnClearAsteroids">Tout effacer</button>
+    </div>
+
+    <div id="asteroidList" class="asteroid-list"></div>
+    <div id="computeStatus" class="compute-status"></div>
+  </div>
+</div>
+
+<!-- ============ INFO SHEET ============ -->
+<div class="sheet-backdrop hidden" id="infoBackdrop"></div>
+<div class="sheet hidden" id="infoSheet" role="dialog" aria-label="Informations">
+  <div class="sheet-handle"></div>
+  <div class="sheet-header">
+    <h2>À propos</h2>
+    <button class="icon-btn" id="btnCloseInfo" aria-label="Fermer">✕</button>
+  </div>
+  <div class="sheet-body">
+    <p class="hint">
+      Les positions planétaires utilisent les éléments orbitaux képlériens moyens (époque J2000,
+      valables env. 1800–2050) — précision de l'ordre de l'arcminute, suffisante pour la visualisation,
+      pas pour une éphéméride de précision. La Lune utilise des éléments moyens simplifiés
+      (période et précession correctes, faible précision absolue).
+    </p>
+    <p class="hint">
+      Les astéroïdes sont propagés comme particules de masse négligeable : leur trajectoire ne dépend
+      donc pas de la masse saisie (principe d'équivalence), la masse ne sert qu'à l'affichage
+      (énergie cinétique). L'intégration utilise Runge-Kutta d'ordre 4 avec la gravité du Soleil et
+      des huit planètes.
+    </p>
+    <p class="hint">
+      Les tailles des astres sont exagérées à l'échelle du système solaire pour rester visibles ;
+      au zoom maximal sur un astre, l'échelle réelle est utilisée et une atmosphère/texture stylisée
+      est ajoutée à titre illustratif.
+    </p>
+    <p class="hint">Pincez pour zoomer, glissez pour déplacer la vue. Fonctionne hors-ligne une fois installée (PWA).</p>
+  </div>
+</div>
+
+<div id="toast" class="toast hidden"></div>
+
+<script type="module" src="js/main.js"></script>
+</body>
+</html>
