@@ -53,6 +53,16 @@ export const PLANETS = [
 
 export const SUN = { key:'sun', name:'Soleil', color:'#ffd27a', radiusKm:696000, spinHours:609.12 };
 
+// Real masses (kg) — used only for informational readouts (force = m·a),
+// never for trajectory dynamics (everything is propagated as a massless
+// test particle under the Sun+planets' gravity).
+export const MASS_KG = {
+  sun: 1.989e30,
+  mercury: 3.3011e23, venus: 4.8675e24, earth: 5.9724e24, mars: 6.4171e23,
+  jupiter: 1.8982e27, saturn: 5.6834e26, uranus: 8.6810e25, neptune: 1.02409e26,
+  moon: 7.342e22,
+};
+
 // Simplified mean lunar elements (geocentric), correct period & precession
 // rates, low absolute precision — sufficient for visualization.
 export const MOON = {

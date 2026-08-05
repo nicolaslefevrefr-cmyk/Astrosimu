@@ -1,7 +1,20 @@
-import { PLANETS, SUN, MOON, GM_SUN, AU_KM, DAY_S, CITIES, dateToJD, jdToDate } from './orbitalData.js';
+import { PLANETS, SUN, MOON, GM_SUN, AU_KM, DAY_S, MASS_KG, CITIES, dateToJD, jdToDate } from './orbitalData.js';
 import { planetPosition, planetOrbitPath, moonPositionGeocentric, rotationAngleDeg, earthGMSTDeg } from './kepler.js';
-import { buildInitialState, integrateTrajectory, samplePosition, computeVariationFamily } from './physics.js';
+import { buildInitialState, buildLaunchState, integrateTrajectory, samplePosition, computeVariationFamily, computeLaunchVariationFamily, acceleration } from './physics.js';
 import { Renderer } from './render.js';
+
+const G_CONST = 6.674e-11; // m^3 kg^-1 s^-2
+const ACCEL_AUDAY2_TO_MS2 = (AU_KM*1000) / (DAY_S*DAY_S);
+// A rocket "launch" is modeled with the patched-conic simplification: the
+// object starts its heliocentric journey already just outside Earth's
+// sphere of gravitational influence (Hill radius ≈ 0.01 AU ≈ 1.5M km),
+// with velocity = Earth's own + the chosen delta-v. Offsetting only by
+// Earth's physical radius instead very nearly zeroes out the object's
+// angular momentum *around Earth*, producing a near-radial plunge back
+// through Earth's intense local gravity that no practical time step can
+// resolve — verified experimentally: it corrupts the heliocentric energy
+// within days. The Hill-sphere offset avoids that regime entirely.
+const LAUNCH_OFFSET_AU = 0.01;
 
 // ===========================================================
 // State
@@ -17,11 +30,14 @@ let selectedKey = null; // 'sun' | planet key | 'moon' | 'ast:<id>'
 let locked = false;
 
 const orbitCache = { jd: null, paths: {} };
-let asteroids = []; // {id, name, color, params, trajectory, family, massKg}
+let asteroids = []; // {id, name, color, params, trajectory, family, massKg, approaches}
 let astCounter = 0;
+let rockets = []; // {id, name, color, burn, trajectory, family, massKg, approaches}
+let rocketCounter = 0;
 let hitTargets = []; // rebuilt every frame: {key, sx, sy, r}
 
 const ASTEROID_COLORS = ['#ff6b6b','#ffd166','#8ecae6','#c77dff','#7cf29c','#f4a261'];
+const ROCKET_COLORS = ['#6fe3d6','#a0e86f','#e8a0f0','#f0d06f'];
 
 const FOCUS_ZOOM = {
   sun: 80, mercury: 900, venus: 500, earth: 380, moon: 60000,
@@ -53,6 +69,16 @@ function refreshOrbitCache(jd){
   if (orbitCache.jd !== null && Math.abs(jd - orbitCache.jd) < 25) return;
   orbitCache.jd = jd;
   for (const p of PLANETS) orbitCache.paths[p.key] = planetOrbitPath(p, jd, 160);
+}
+
+// Finite-difference heliocentric velocity (AU/day) for any tracked body,
+// used for the info panel and as the "carrier" velocity a rocket launch
+// adds its delta-v to.
+function bodyVelocity(key, jd){
+  const h = 0.02; // days
+  const b1 = computeBodiesNow(jd - h)[key];
+  const b2 = computeBodiesNow(jd + h)[key];
+  return { x:(b2.x-b1.x)/(2*h), y:(b2.y-b1.y)/(2*h), z:(b2.z-b1.z)/(2*h) };
 }
 
 // ===========================================================
@@ -94,6 +120,10 @@ function focusOn(key){
     const a = asteroids.find(x => x.id === key.slice(4));
     pos = a ? samplePosition(a.trajectory, simJD) : { x:0, y:0 };
     renderer.cam.zoom = 300;
+  } else if (key.startsWith('roc:')){
+    const r = rockets.find(x => x.id === key.slice(4));
+    pos = r ? samplePosition(r.trajectory, simJD) : { x:0, y:0 };
+    renderer.cam.zoom = 3000;
   } else {
     pos = bodies[key];
     renderer.cam.zoom = FOCUS_ZOOM[key] ?? 80;
@@ -151,7 +181,9 @@ function updateLockPill(){
   lockPill.classList.remove('hidden');
   const meta = selectedKey.startsWith('ast:')
     ? asteroids.find(a => a.id === selectedKey.slice(4))
-    : ALL_BODY_META.find(b => b.key === selectedKey);
+    : selectedKey.startsWith('roc:')
+      ? rockets.find(r => r.id === selectedKey.slice(4))
+      : ALL_BODY_META.find(b => b.key === selectedKey);
   lockLabel.textContent = meta ? meta.name : '—';
   btnLockToggle.setAttribute('aria-pressed', String(locked));
   btnLockToggle.textContent = locked ? 'Suivi ✓' : 'Suivre';
@@ -180,25 +212,39 @@ const DATE_FMT = new Intl.DateTimeFormat('fr-FR', {
   year:'numeric', month:'short', day:'2-digit', hour:'2-digit', minute:'2-digit'
 });
 
+// Logarithmic-feeling mapping for the time-flow slider: a cubic curve
+// gives lots of fine control near zero (quasi-pause) and grows quickly
+// as the slider is pushed toward its extremes.
+const MAX_FLOW_SPEED = 300; // days/sec ceiling
+function rawToSpeed(raw){
+  const s = Math.sign(raw) * MAX_FLOW_SPEED * Math.pow(Math.abs(raw)/100, 3);
+  return Math.round(s * 1000) / 1000;
+}
+function speedToRaw(v){
+  if (v === 0) return 0;
+  return Math.sign(v) * 100 * Math.pow(Math.abs(v)/MAX_FLOW_SPEED, 1/3);
+}
+
 function fmtSpeed(v){
   if (v === 0) return 'Pause';
   const abs = Math.abs(v);
   let txt;
   if (abs >= 30) txt = (abs/30).toFixed(1) + ' mois/s';
-  else txt = abs.toFixed(abs < 2 ? 2 : 0) + ' j/s';
+  else if (abs >= 1) txt = abs.toFixed(abs < 2 ? 2 : 0) + ' j/s';
+  else txt = (abs*24).toFixed(1) + ' h/s';
   return (v < 0 ? '−' : '+') + txt;
 }
 
 function setSpeed(v){
   speed = v;
   if (v !== 0) lastSpeed = v;
-  speedSlider.value = String(v);
+  speedSlider.value = String(speedToRaw(v));
   speedValue.textContent = fmtSpeed(v);
   btnPause.textContent = v === 0 ? '▶ Lecture' : '⏸ Pause';
   miniPlayBtn.textContent = v === 0 ? '▶' : '⏸';
 }
 
-speedSlider.addEventListener('input', () => setSpeed(Number(speedSlider.value)));
+speedSlider.addEventListener('input', () => setSpeed(rawToSpeed(Number(speedSlider.value))));
 btnPause.addEventListener('click', () => setSpeed(speed === 0 ? (lastSpeed || 1) : 0));
 
 // ---- collapsible bottom panel ----
@@ -464,21 +510,23 @@ document.getElementById('btnAddAsteroid').addEventListener('click', () => {
     const t0 = performance.now();
     const state0 = buildInitialState(params);
     const spanDays = spanYears * 365.25;
-    const trajectory = integrateTrajectory(state0, simJD, spanDays, { dtMax:0.5, dtMin:0.0004, sampleIntervalDays:1 });
+    const trajectory = integrateTrajectory(state0, simJD, spanDays); // precise defaults
 
     let family = null;
     if (withVariation){
       statusEl.textContent = 'Calcul de la famille de trajectoires…';
-      family = computeVariationFamily(params, simJD, spanDays, marginPct, samples, { dtMax:0.6, dtMin:0.0008, sampleIntervalDays:2 });
+      family = computeVariationFamily(params, simJD, spanDays, marginPct, samples, { dtMax:0.5, dtMin:0.0006, sampleIntervalDays:1.5 });
     }
 
     const id = 'a' + (++astCounter) + '_' + Math.random().toString(36).slice(2,7);
     const color = ASTEROID_COLORS[asteroids.length % ASTEROID_COLORS.length];
-    asteroids.push({ id, name, color, params, massKg, trajectory, family, spanYears });
+    const approaches = findCloseApproaches(trajectory, 'ast:'+id);
+    asteroids.push({ id, name, color, params, massKg, trajectory, family, spanYears, approaches });
+    clearPreview();
     renderAsteroidList();
     const ms = (performance.now() - t0).toFixed(0);
     statusEl.textContent = `Trajectoire calculée (${trajectory.length} points, ${ms} ms).`;
-    toast(`${name} ajouté`);
+    toast(approaches.length ? `${name} ajouté — ${approachSummary(approaches)}` : `${name} ajouté`, 4200);
   }, 20);
 });
 
@@ -495,10 +543,14 @@ function renderAsteroidList(){
   asteroids.forEach(a => {
     const el = document.createElement('div');
     el.className = 'asteroid-item';
+    const warnLine = a.approaches && a.approaches.length
+      ? `<div class="a-meta" style="color:${a.approaches[0].minAU < CLOSE_WARN_AU ? 'var(--danger)' : 'var(--amber)'}">${approachSummary(a.approaches)}</div>`
+      : '';
     el.innerHTML = `
       <div>
         <div class="a-name" style="color:${a.color}">${a.name}</div>
         <div class="a-meta">${a.params.distAU.toFixed(2)} UA · ${a.params.speedKms.toFixed(1)} km/s · i=${a.params.inclDeg}°${a.family ? ' · famille ✓' : ''}</div>
+        ${warnLine}
       </div>
       <div style="display:flex; gap:6px;">
         <button data-act="focus">Voir</button>
@@ -516,6 +568,172 @@ function renderAsteroidList(){
     list.appendChild(el);
   });
 }
+
+// ===========================================================
+// Rocket: launch from Earth
+// ===========================================================
+const rocketSheetCtl = wireSheet('rocketSheet','rocketBackdrop','btnRocket','btnCloseRocket');
+
+const rocSiteSelect = document.getElementById('fRoc_site');
+CITIES.forEach((c, i) => {
+  const opt = document.createElement('option');
+  opt.value = String(i);
+  opt.textContent = c.name;
+  rocSiteSelect.appendChild(opt);
+});
+rocSiteSelect.selectedIndex = 0;
+
+document.querySelectorAll('#rocketSheet .preset-btn[data-ang]').forEach(b => {
+  b.addEventListener('click', () => {
+    document.getElementById('fRoc_angle').value = b.dataset.ang;
+    schedulePreview();
+  });
+});
+
+document.getElementById('fRoc_varToggle').addEventListener('change', e => {
+  document.getElementById('rocketVariationParams').style.opacity = e.target.checked ? '1' : '0.4';
+});
+document.getElementById('rocketVariationParams').style.opacity = '0.4';
+
+function readRocketBurn(){
+  return {
+    deltaVKms: Number(document.getElementById('fRoc_dv').value),
+    burnAngleDeg: Number(document.getElementById('fRoc_angle').value),
+    burnInclDeg: Number(document.getElementById('fRoc_incl').value),
+  };
+}
+
+document.getElementById('btnLaunchRocket').addEventListener('click', () => {
+  const burn = readRocketBurn();
+  const massKg = Number(document.getElementById('fRoc_mass').value) || 0;
+  const name = document.getElementById('fRoc_name').value.trim() || `Fusée ${++rocketCounter}`;
+  const spanYears = Number(document.getElementById('fRoc_span').value) || 1.5;
+  const withVariation = document.getElementById('fRoc_varToggle').checked;
+  const marginPct = Number(document.getElementById('fRoc_margin').value) || 5;
+  const samples = Math.max(4, Math.min(60, Number(document.getElementById('fRoc_samples').value) || 24));
+
+  const statusEl = document.getElementById('rocketComputeStatus');
+  statusEl.textContent = 'Calcul de la trajectoire…';
+
+  setTimeout(() => {
+    const t0 = performance.now();
+    const earthPos = computeBodiesNow(simJD).earth;
+    const earthVel = bodyVelocity('earth', simJD);
+    const state0 = buildLaunchState(earthPos, earthVel, burn.deltaVKms, burn.burnAngleDeg, burn.burnInclDeg, LAUNCH_OFFSET_AU);
+    const spanDays = spanYears * 365.25;
+    const trajectory = integrateTrajectory(state0, simJD, spanDays, { backDays:0 });
+
+    let family = null;
+    if (withVariation){
+      statusEl.textContent = 'Calcul de la famille de trajectoires…';
+      family = computeLaunchVariationFamily(earthPos, earthVel, burn, marginPct, samples, simJD, spanDays,
+        { dtMax:0.5, dtMin:0.0006, sampleIntervalDays:1.5, backDays:0 }, LAUNCH_OFFSET_AU);
+    }
+
+    const id = 'r' + (++rocketCounter) + '_' + Math.random().toString(36).slice(2,7);
+    const color = ROCKET_COLORS[rockets.length % ROCKET_COLORS.length];
+    const approaches = findCloseApproaches(trajectory, 'roc:'+id);
+    rockets.push({ id, name, color, burn, massKg, trajectory, family, spanYears, approaches });
+    clearPreview();
+    renderRocketList();
+    const ms = (performance.now() - t0).toFixed(0);
+    statusEl.textContent = `Trajectoire calculée (${trajectory.length} points, ${ms} ms).`;
+    toast(approaches.length ? `${name} lancée — ${approachSummary(approaches)}` : `${name} lancée`, 4200);
+  }, 20);
+});
+
+document.getElementById('btnClearRockets').addEventListener('click', () => {
+  rockets = [];
+  if (selectedKey && selectedKey.startsWith('roc:')) clearFocus();
+  renderRocketList();
+  document.getElementById('rocketComputeStatus').textContent = '';
+});
+
+function renderRocketList(){
+  const list = document.getElementById('rocketList');
+  list.innerHTML = '';
+  rockets.forEach(r => {
+    const el = document.createElement('div');
+    el.className = 'asteroid-item';
+    const warnLine = r.approaches && r.approaches.length
+      ? `<div class="a-meta" style="color:${r.approaches[0].minAU < CLOSE_WARN_AU ? 'var(--danger)' : 'var(--amber)'}">${approachSummary(r.approaches)}</div>`
+      : '';
+    el.innerHTML = `
+      <div>
+        <div class="a-name" style="color:${r.color}">🚀 ${r.name}</div>
+        <div class="a-meta">Δv ${r.burn.deltaVKms.toFixed(1)} km/s · ${r.burn.burnAngleDeg}° · incl ${r.burn.burnInclDeg}°${r.family ? ' · famille ✓' : ''}</div>
+        ${warnLine}
+      </div>
+      <div style="display:flex; gap:6px;">
+        <button data-act="focus">Voir</button>
+        <button data-act="del">✕</button>
+      </div>`;
+    el.querySelector('[data-act="focus"]').addEventListener('click', () => {
+      focusOn('roc:' + r.id);
+      rocketSheetCtl.close();
+    });
+    el.querySelector('[data-act="del"]').addEventListener('click', () => {
+      rockets = rockets.filter(x => x.id !== r.id);
+      if (selectedKey === 'roc:' + r.id) clearFocus();
+      renderRocketList();
+    });
+    list.appendChild(el);
+  });
+}
+
+// ===========================================================
+// Live preview: while either creation sheet is open and the user edits
+// a field, a fast/coarse trajectory is (re)computed and drawn immediately,
+// so the shape of the orbit is visible before committing to a full,
+// precise calculation via "Calculer" / "Lancer".
+// ===========================================================
+let activePreview = null; // { trajectory, color }
+let previewTimer = null;
+
+function clearPreview(){ activePreview = null; }
+
+function schedulePreview(){
+  clearTimeout(previewTimer);
+  previewTimer = setTimeout(computePreview, 180);
+}
+
+function computePreview(){
+  const PREVIEW_OPTS = { dtMax:2.5, dtMin:0.03, sampleIntervalDays:4, maxSteps:4000 };
+  try{
+    if (!asteroidSheetEl.classList.contains('hidden')){
+      const params = readAsteroidForm();
+      if (!Number.isFinite(params.distAU) || params.distAU <= 0 || !Number.isFinite(params.speedKms)) return;
+      const spanYears = Math.min(2, Number(document.getElementById('fAst_span').value) || 2);
+      const st = buildInitialState(params);
+      const trajectory = integrateTrajectory(st, simJD, spanYears*365.25, PREVIEW_OPTS);
+      activePreview = { trajectory, color: '#ffffff' };
+    } else if (!rocketSheetEl.classList.contains('hidden')){
+      const burn = readRocketBurn();
+      if (!Number.isFinite(burn.deltaVKms) || burn.deltaVKms <= 0) return;
+      const earthPos = computeBodiesNow(simJD).earth;
+      const earthVel = bodyVelocity('earth', simJD);
+      const st = buildLaunchState(earthPos, earthVel, burn.deltaVKms, burn.burnAngleDeg, burn.burnInclDeg, LAUNCH_OFFSET_AU);
+      const spanYears = Math.min(1.5, Number(document.getElementById('fRoc_span').value) || 1.5);
+      const trajectory = integrateTrajectory(st, simJD, spanYears*365.25, { ...PREVIEW_OPTS, backDays:0 });
+      activePreview = { trajectory, color: '#ffffff' };
+    }
+  } catch(e){ /* ignore transient bad input while typing */ }
+}
+
+const asteroidSheetEl = document.getElementById('asteroidSheet');
+const rocketSheetEl = document.getElementById('rocketSheet');
+['fAst_dist','fAst_speed','fAst_angle','fAst_incl','fAst_lon','fAst_span'].forEach(id => {
+  document.getElementById(id).addEventListener('input', schedulePreview);
+});
+['fRoc_dv','fRoc_angle','fRoc_incl','fRoc_span'].forEach(id => {
+  document.getElementById(id).addEventListener('input', schedulePreview);
+});
+document.getElementById('btnAsteroids').addEventListener('click', schedulePreview);
+document.getElementById('btnRocket').addEventListener('click', schedulePreview);
+document.getElementById('btnCloseSheet').addEventListener('click', clearPreview);
+document.getElementById('btnCloseRocket').addEventListener('click', clearPreview);
+document.getElementById('sheetBackdrop').addEventListener('click', clearPreview);
+document.getElementById('rocketBackdrop').addEventListener('click', clearPreview);
 
 // ===========================================================
 // Asteroid: place-on-map mode
@@ -615,6 +833,146 @@ function finalizePlacement(){
 }
 
 // ===========================================================
+// Body info panel: distance / velocity / force / proximity readouts
+// for whichever body or object is currently selected.
+// ===========================================================
+const CLOSE_WARN_AU = 0.005;   // ~750,000 km — highlighted in the distance list
+const CLOSE_NOTE_AU = 0.05;    // ~7.5M km — surfaced as a close-approach notice
+
+const bodyInfoSheetCtl = wireSheet('bodyInfoSheet','bodyInfoBackdrop', null, 'btnCloseBodyInfo');
+let bodyInfoOpen = false;
+document.getElementById('btnLockInfo').addEventListener('click', () => {
+  if (!selectedKey) return;
+  bodyInfoOpen = true;
+  bodyInfoSheetCtl.open();
+});
+document.getElementById('bodyInfoBackdrop').addEventListener('click', () => { bodyInfoOpen = false; });
+document.getElementById('btnCloseBodyInfo').addEventListener('click', () => { bodyInfoOpen = false; });
+
+// Resolve whatever is selected into a common {name, pos, vel, mass} shape.
+function getSelectedState(jd){
+  if (!selectedKey) return null;
+  if (selectedKey.startsWith('ast:')){
+    const a = asteroids.find(x => x.id === selectedKey.slice(4));
+    if (!a) return null;
+    const p = samplePosition(a.trajectory, jd);
+    return { name:a.name, pos:{x:p.x,y:p.y,z:p.z}, vel:{x:p.vx,y:p.vy,z:p.vz}, mass:a.massKg, color:a.color };
+  }
+  if (selectedKey.startsWith('roc:')){
+    const r = rockets.find(x => x.id === selectedKey.slice(4));
+    if (!r) return null;
+    const p = samplePosition(r.trajectory, jd);
+    return { name:'🚀 '+r.name, pos:{x:p.x,y:p.y,z:p.z}, vel:{x:p.vx,y:p.vy,z:p.vz}, mass:r.massKg, color:r.color };
+  }
+  const bodies = computeBodiesNow(jd);
+  const pos = bodies[selectedKey];
+  const vel = selectedKey === 'sun' ? {x:0,y:0,z:0} : bodyVelocity(selectedKey, jd);
+  const meta = ALL_BODY_META.find(b => b.key === selectedKey);
+  return { name: meta ? meta.name : selectedKey, pos, vel, mass: MASS_KG[selectedKey] || null, color: meta ? meta.color : '#fff' };
+}
+
+function fmtAU(au){
+  return au < 0.01 ? `${(au*AU_KM).toLocaleString('fr-FR',{maximumFractionDigits:0})} km` : `${au.toFixed(4)} UA`;
+}
+function statCell(label, value, warn=false){
+  return `<div class="stat-cell"><div class="s-label">${label}</div><div class="s-value${warn?' warn':''}">${value}</div></div>`;
+}
+
+function updateBodyInfoPanel(){
+  if (!bodyInfoOpen || !selectedKey) return;
+  const now = performance.now();
+  if (updateBodyInfoPanel._t && now - updateBodyInfoPanel._t < 200) return;
+  updateBodyInfoPanel._t = now;
+  const s = getSelectedState(simJD);
+  if (!s) return;
+
+  document.getElementById('biName').textContent = s.name;
+
+  const rSun = Math.hypot(s.pos.x, s.pos.y, s.pos.z);
+  const speedAUday = Math.hypot(s.vel.x, s.vel.y, s.vel.z);
+  const speedKms = speedAUday * AU_KM / DAY_S;
+  const headingDeg = (Math.atan2(s.vel.y, s.vel.x) * 180/Math.PI + 360) % 360;
+
+  const [ax, ay, az] = acceleration([s.pos.x,s.pos.y,s.pos.z,0,0,0], simJD);
+  const accelMS2 = Math.hypot(ax,ay,az) * ACCEL_AUDAY2_TO_MS2;
+  const forceN = s.mass ? accelMS2 * s.mass : null;
+
+  const stats = [
+    statCell('Distance au Soleil', fmtAU(rSun)),
+    statCell('Vitesse héliocentrique', speedKms.toFixed(2) + ' km/s'),
+    statCell('Cap (direction)', headingDeg.toFixed(0) + '°'),
+    statCell('Accélération subie', accelMS2.toExponential(2) + ' m/s²'),
+  ];
+  if (forceN !== null){
+    stats.push(statCell('Force totale (F=ma)', forceN >= 1000 ? (forceN/1000).toFixed(2)+' kN' : forceN.toFixed(1)+' N'));
+  }
+  document.getElementById('biStats').innerHTML = stats.join('');
+
+  // distances to every other tracked body/object
+  const bodies = computeBodiesNow(simJD);
+  const rows = [];
+  const pushRow = (name, color, pos) => {
+    if (!pos) return;
+    const d = Math.hypot(s.pos.x-pos.x, s.pos.y-pos.y, s.pos.z-(pos.z||0));
+    rows.push({ name, color, d });
+  };
+  if (selectedKey !== 'sun') pushRow('Soleil', SUN.color, {x:0,y:0,z:0});
+  for (const p of PLANETS) if (selectedKey !== p.key) pushRow(p.name, p.color, bodies[p.key]);
+  if (selectedKey !== 'moon') pushRow('Lune', MOON.color, bodies.moon);
+  for (const a of asteroids) if (selectedKey !== 'ast:'+a.id){
+    const p = samplePosition(a.trajectory, simJD); pushRow(a.name, a.color, p);
+  }
+  for (const r of rockets) if (selectedKey !== 'roc:'+r.id){
+    const p = samplePosition(r.trajectory, simJD); pushRow('🚀 '+r.name, r.color, p);
+  }
+  rows.sort((a,b) => a.d - b.d);
+  document.getElementById('biDistances').innerHTML = rows.map(r => `
+    <div class="distance-row${r.d < CLOSE_WARN_AU ? ' warn' : ''}">
+      <span class="d-name"><span class="d-dot" style="background:${r.color}"></span>${r.name}</span>
+      <span class="d-val">${fmtAU(r.d)}</span>
+    </div>`).join('');
+}
+
+// ===========================================================
+// Close-approach scanning: after any asteroid/rocket trajectory is
+// computed, check it against every planet/Sun/Moon and every other
+// tracked object for how close it gets, so genuinely risky passes can
+// be surfaced as a warning instead of discovered by eye.
+// ===========================================================
+function findCloseApproaches(trajectory, selfKey){
+  const targets = [{ key:'sun', name:'Soleil', isObj:false }];
+  for (const p of PLANETS) targets.push({ key:p.key, name:p.name, isObj:false });
+  targets.push({ key:'moon', name:'Lune', isObj:false });
+  for (const a of asteroids) if ('ast:'+a.id !== selfKey) targets.push({ key:'ast:'+a.id, name:a.name, isObj:true, obj:a });
+  for (const r of rockets) if ('roc:'+r.id !== selfKey) targets.push({ key:'roc:'+r.id, name:'🚀 '+r.name, isObj:true, obj:r });
+
+  const best = new Map();
+  for (const s of trajectory){
+    const bodies = computeBodiesNow(s.jd);
+    for (const t of targets){
+      let p;
+      if (t.isObj) p = samplePosition(t.obj.trajectory, s.jd);
+      else p = bodies[t.key];
+      if (!p) continue;
+      const d = Math.hypot(s.x-p.x, s.y-p.y, s.z-(p.z||0));
+      const cur = best.get(t.key);
+      if (!cur || d < cur.minAU) best.set(t.key, { minAU:d, jd:s.jd, name:t.name });
+    }
+  }
+  const results = [];
+  for (const val of best.values()) if (val.minAU <= CLOSE_NOTE_AU) results.push(val);
+  results.sort((a,b) => a.minAU - b.minAU);
+  return results;
+}
+
+function approachSummary(approaches){
+  if (!approaches.length) return '';
+  const top = approaches[0];
+  const level = top.minAU < CLOSE_WARN_AU ? '⚠ Rencontre très rapprochée' : '△ Passage rapproché';
+  return `${level} : ${top.name} à ${fmtAU(top.minAU)} (${DATE_FMT.format(jdToDate(top.jd))})`;
+}
+
+// ===========================================================
 // Main render loop
 // ===========================================================
 function frame(now){
@@ -631,6 +989,9 @@ function frame(now){
     if (selectedKey.startsWith('ast:')){
       const a = asteroids.find(x => x.id === selectedKey.slice(4));
       pos = a ? samplePosition(a.trajectory, simJD) : null;
+    } else if (selectedKey.startsWith('roc:')){
+      const r = rockets.find(x => x.id === selectedKey.slice(4));
+      pos = r ? samplePosition(r.trajectory, simJD) : null;
     } else pos = bodies[selectedKey];
     if (pos){ renderer.cam.x = pos.x; renderer.cam.y = pos.y; }
   }
@@ -656,6 +1017,33 @@ function frame(now){
       renderer.drawLabel(a.name, sx, sy, 6, a.color, selectedKey === 'ast:'+a.id);
       if (selectedKey === 'ast:'+a.id) renderer.drawSelectionRing(sx, sy, 6, a.color);
       hitTargets.push({ key:'ast:'+a.id, sx, sy, r:14 });
+    }
+  }
+
+  for (const r of rockets){
+    if (r.family){
+      for (const traj of r.family) renderer.drawTrajectory(traj, r.color, 0.10, 1);
+    }
+  }
+  for (const r of rockets){
+    renderer.drawTrajectory(r.trajectory, r.color, 0.9, 1.6);
+    const pos = samplePosition(r.trajectory, simJD);
+    if (pos){
+      const { sx, sy } = renderer.worldToScreen(pos.x, pos.y);
+      renderer.drawMarker(sx, sy, r.color);
+      renderer.drawLabel('🚀 ' + r.name, sx, sy, 6, r.color, selectedKey === 'roc:'+r.id);
+      if (selectedKey === 'roc:'+r.id) renderer.drawSelectionRing(sx, sy, 6, r.color);
+      hitTargets.push({ key:'roc:'+r.id, sx, sy, r:14 });
+    }
+  }
+
+  // live coarse preview while a creation sheet is open and being edited
+  if (activePreview){
+    renderer.drawTrajectory(activePreview.trajectory, activePreview.color, 0.55, 1.2);
+    const pos = samplePosition(activePreview.trajectory, simJD);
+    if (pos){
+      const { sx, sy } = renderer.worldToScreen(pos.x, pos.y);
+      renderer.drawMarker(sx, sy, activePreview.color);
     }
   }
 
@@ -699,6 +1087,22 @@ function frame(now){
     const b = renderer.worldToScreen(placeDragWorld.x, placeDragWorld.y);
     renderer.drawCrosshair(a.sx, a.sy);
     if (Math.hypot(b.sx-a.sx, b.sy-a.sy) > 3) renderer.drawArrow(a.sx, a.sy, b.sx, b.sy);
+  }
+
+  // velocity arrow + live stats while the info panel is open
+  if (bodyInfoOpen && selectedKey){
+    const s = getSelectedState(simJD);
+    if (s){
+      const speedAUday = Math.hypot(s.vel.x, s.vel.y, s.vel.z);
+      if (speedAUday > 1e-9){
+        const dirLenAU = Math.min(2, Math.max(0.02, 260 / renderer.cam.zoom));
+        const ux = s.vel.x/speedAUday, uy = s.vel.y/speedAUday;
+        const a = renderer.worldToScreen(s.pos.x, s.pos.y);
+        const b = renderer.worldToScreen(s.pos.x + ux*dirLenAU, s.pos.y + uy*dirLenAU);
+        renderer.drawArrow(a.sx, a.sy, b.sx, b.sy, '#ffb454');
+      }
+    }
+    updateBodyInfoPanel();
   }
 
   requestAnimationFrame(frame);

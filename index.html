@@ -34,6 +34,7 @@
 <!-- ============ SELECTION / LOCK PILL ============ -->
 <div class="lock-pill hidden" id="lockPill">
   <span id="lockLabel">Terre</span>
+  <button id="btnLockInfo" class="pill-toggle" aria-label="Informations sur l'astre">ⓘ</button>
   <button id="btnLockToggle" class="pill-toggle" aria-pressed="false">Suivre</button>
   <button id="btnLockClose" aria-label="Fermer">✕</button>
 </div>
@@ -60,7 +61,10 @@
     <div class="time-row">
       <button class="chip" id="btnPause">⏸ Pause</button>
       <button class="chip" id="btnNow">⦿ Maintenant</button>
+    </div>
+    <div class="time-row">
       <button class="chip ghost" id="btnAsteroids">☄ Astéroïdes</button>
+      <button class="chip ghost" id="btnRocket">🚀 Fusée</button>
     </div>
 
     <div class="slider-block">
@@ -68,7 +72,7 @@
         <span>Flux du temps (lecture continue)</span>
         <span id="speedValue">0 j/s</span>
       </label>
-      <input type="range" id="speedSlider" min="-30" max="30" step="0.5" value="0">
+      <input type="range" id="speedSlider" min="-100" max="100" step="0.5" value="0">
     </div>
 
     <div class="slider-block">
@@ -168,6 +172,96 @@
 
     <div id="asteroidList" class="asteroid-list"></div>
     <div id="computeStatus" class="compute-status"></div>
+  </div>
+</div>
+
+<!-- ============ BODY INFO SHEET ============ -->
+<div class="sheet-backdrop hidden" id="bodyInfoBackdrop"></div>
+<div class="sheet hidden" id="bodyInfoSheet" role="dialog" aria-label="Informations sur l'astre">
+  <div class="sheet-handle"></div>
+  <div class="sheet-header">
+    <h2 id="biName">—</h2>
+    <button class="icon-btn" id="btnCloseBodyInfo" aria-label="Fermer">✕</button>
+  </div>
+  <div class="sheet-body">
+    <div class="stat-grid" id="biStats"></div>
+    <div class="hint">Distances aux autres astres</div>
+    <div id="biDistances" class="distance-list"></div>
+  </div>
+</div>
+
+<!-- ============ ROCKET SHEET ============ -->
+<div class="sheet-backdrop hidden" id="rocketBackdrop"></div>
+<div class="sheet hidden" id="rocketSheet" role="dialog" aria-label="Lancement de fusée">
+  <div class="sheet-handle"></div>
+  <div class="sheet-header">
+    <h2>🚀 Lancer une fusée</h2>
+    <button class="icon-btn" id="btnCloseRocket" aria-label="Fermer">✕</button>
+  </div>
+  <div class="sheet-body">
+    <p class="hint">
+      Lancement depuis la Terre, à l'instant actuel de la simulation (ajustez l'horloge avant
+      de lancer pour choisir la date). La poussée est définie par rapport au mouvement de la
+      Terre — 0° = prograde (accélère), 180° = rétrograde (freine), 90°/270° = radial.
+    </p>
+
+    <div class="field-grid">
+      <label>Site de lancement
+        <select id="fRoc_site"></select>
+      </label>
+      <label>Delta-v (km/s)
+        <input type="number" id="fRoc_dv" value="4" step="0.1" min="0.05" max="40">
+      </label>
+      <label>Angle de poussée (°)
+        <input type="number" id="fRoc_angle" value="0" step="1" min="0" max="360">
+      </label>
+      <label>Inclinaison poussée (°)
+        <input type="number" id="fRoc_incl" value="0" step="0.5" min="-45" max="45">
+      </label>
+      <label>Masse (kg)
+        <input type="number" id="fRoc_mass" value="1500" step="1" min="1">
+      </label>
+      <label>Fenêtre (années)
+        <input type="number" id="fRoc_span" value="1.5" min="0.1" max="10" step="0.1">
+      </label>
+    </div>
+
+    <div class="speed-presets">
+      <button class="preset-btn" data-ang="0">Prograde</button>
+      <button class="preset-btn" data-ang="180">Rétrograde</button>
+      <button class="preset-btn" data-ang="90">Radial ext.</button>
+      <button class="preset-btn" data-ang="270">Radial int.</button>
+    </div>
+
+    <label>Nom
+      <input type="text" id="fRoc_name" value="Fusée 1" maxlength="18">
+    </label>
+
+    <div class="btn-row">
+      <button class="btn-primary" id="btnLaunchRocket">Lancer</button>
+    </div>
+
+    <div class="variation-block">
+      <label class="switch-row">
+        <input type="checkbox" id="fRoc_varToggle">
+        <span>Famille de trajectoires (± incertitude)</span>
+      </label>
+      <div class="field-row" id="rocketVariationParams">
+        <label>Marge (%)
+          <input type="number" id="fRoc_margin" value="5" min="0.5" max="30" step="0.5">
+        </label>
+        <label>Échantillons
+          <input type="number" id="fRoc_samples" value="24" min="4" max="60" step="2">
+        </label>
+      </div>
+    </div>
+
+    <div class="btn-row">
+      <button class="btn-secondary" id="btnClearRockets">Tout effacer</button>
+    </div>
+
+    <div id="rocketList" class="asteroid-list"></div>
+    <div id="rocketComputeStatus" class="compute-status"></div>
   </div>
 </div>
 
