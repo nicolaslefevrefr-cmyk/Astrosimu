@@ -55,11 +55,15 @@
 
   <div class="slider-block">
     <label class="slider-label" for="speedSlider">
-      <span>Flux du temps</span>
+      <span>Flux du temps (lecture continue)</span>
       <span id="speedValue">0 j/s</span>
     </label>
-    <input type="range" id="speedSlider" min="-400" max="400" step="1" value="0">
-    <div class="speed-presets" id="speedPresets"></div>
+    <input type="range" id="speedSlider" min="-30" max="30" step="0.5" value="0">
+  </div>
+
+  <div class="slider-block">
+    <div class="slider-label"><span>Sauts temporels (n'affecte pas la vitesse)</span><span></span></div>
+    <div class="speed-presets" id="jumpRow"></div>
   </div>
 
   <div class="slider-block">
@@ -88,9 +92,15 @@
 
   <div class="sheet-body">
     <p class="hint">
-      Définissez un état initial héliocentrique. La trajectoire est intégrée numériquement
-      (Runge-Kutta 4) sous l'attraction gravitationnelle du Soleil et des planètes.
+      Définissez un état initial héliocentrique, à la main ou en le plaçant sur la carte.
+      La trajectoire est intégrée numériquement (Runge-Kutta 4) sous l'attraction
+      gravitationnelle du Soleil et des planètes, et remontée dans le passé pour
+      retrouver d'où il venait.
     </p>
+
+    <div class="btn-row">
+      <button class="btn-secondary" id="btnPlaceOnMap">◎ Placer sur la carte</button>
+    </div>
 
     <div class="field-grid">
       <label>Distance au Soleil (UA)
@@ -178,6 +188,11 @@
     </p>
     <p class="hint">Pincez pour zoomer, glissez pour déplacer la vue. Fonctionne hors-ligne une fois installée (PWA).</p>
   </div>
+</div>
+
+<div class="place-banner hidden" id="placeBanner">
+  <span id="placeBannerText">Touchez la carte pour placer l'astéroïde</span>
+  <button id="btnPlaceCancel">Annuler</button>
 </div>
 
 <div id="toast" class="toast hidden"></div>
