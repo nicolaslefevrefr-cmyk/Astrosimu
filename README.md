@@ -9,26 +9,43 @@ conçue mobile-first et installable en PWA.
 - Positions du Soleil, des 8 planètes et de la Lune calculées à partir
   d'éléments orbitaux képlériens (époque J2000, précision de l'ordre de
   l'arcminute — voir panneau "À propos" dans l'app).
-- Défilement du temps bidirectionnel : un seul curseur "flux du temps"
-  (jours simulés par seconde réelle, positif ou négatif), un curseur de
-  navigation temporelle (±10 ans autour de l'instant présent), et un
-  bouton "Maintenant".
+- Défilement du temps bidirectionnel : un curseur "flux du temps" (jours
+  simulés par seconde réelle, positif ou négatif), un curseur de
+  navigation temporelle (±10 ans), des boutons de saut ponctuel
+  (±1 j / ±1 sem / ±1 mois / ±1 an, qui déplacent l'horloge sans changer
+  la vitesse de lecture), et un bouton "Maintenant". Tout est regroupé
+  dans un panneau du bas repliable (touchez la barre pour déplier).
 - Rotation propre de chaque astre (période sidérale réelle) en plus de
   la révolution orbitale.
 - Pan / zoom tactile (glisser, pincer) et souris (glisser, molette),
-  boutons +/- dédiés, raccourcis rapides vers chaque astre, et un
-  bouton "Suivre" pour verrouiller la caméra sur un astre en mouvement.
+  ancrés sur le point sous les doigts/curseur, boutons +/- dédiés,
+  raccourcis rapides vers chaque astre, et un tap direct sur un astre
+  (ou un astéroïde) dans la carte pour le sélectionner, avec un bouton
+  "Suivre" pour verrouiller la caméra dessus.
 - Zoom progressif : au-delà d'un certain niveau de zoom sur un astre,
   l'échelle réelle prend le relais et une atmosphère + texture de
   surface stylisées apparaissent (utile pour "voir" la Terre de près).
+- Repère de position au sol (📍) : choisissez une ville dans une liste,
+  un trait part du centre de la Terre dans cette direction (via le temps
+  sidéral de Greenwich), pour visualiser l'alignement des planètes vues
+  depuis cet endroit ; il tourne avec la rotation réelle de la Terre et
+  son déplacement orbital.
 - Simulation d'astéroïdes : distance au Soleil, vitesse, angle de
-  trajectoire, inclinaison, orientation du plan orbital, masse.
-  Propagation par intégration numérique (Runge-Kutta 4) sous la
-  gravité du Soleil + des 8 planètes — pas d'approximation analytique.
+  trajectoire, inclinaison, orientation du plan orbital, masse — ou en
+  plaçant directement la position et la vitesse (glisser une flèche) sur
+  la carte. Propagation par intégration numérique (Runge-Kutta 4) sous
+  la gravité du Soleil + des 8 planètes, avec **pas de temps adaptatif** :
+  le pas se réduit automatiquement quand l'accélération totale subie par
+  l'astéroïde augmente (approche rapprochée d'un astre), ce qui évite les
+  trajectoires erratiques près des rencontres serrées tout en restant
+  rapide loin de tout corps. La trajectoire est toujours calculée à la
+  fois vers l'avenir et vers le passé depuis l'instant courant.
 - Génération d'une "famille" de trajectoires en faisant varier tous les
   paramètres dans une marge réglable (±5% par défaut) pour visualiser
   la sensibilité / l'incertitude de la trajectoire.
-- PWA installable, fonctionne hors-ligne après premier chargement.
+- PWA installable, fonctionne hors-ligne après premier chargement, et se
+  met à jour automatiquement au rechargement dès qu'une nouvelle version
+  est en ligne (stratégie "réseau d'abord", pas besoin de vider le cache).
 
 ## Limites connues (assumées, voir aussi le panneau "À propos")
 
@@ -39,6 +56,11 @@ conçue mobile-first et installable en PWA.
 - La masse d'un astéroïde n'influence pas sa trajectoire (particule de
   masse négligeable, principe d'équivalence) — elle est affichée à
   titre informatif seulement.
+- Une trajectoire s'arrête si elle entre en collision avec le Soleil
+  (passage sous son rayon) ou si elle s'échappe au-delà de 250 UA.
+- Le repère de position au sol ignore l'inclinaison de l'axe terrestre
+  (23,4°) — c'est une projection sur le plan de l'écliptique, donc la
+  direction est orientée et animée correctement mais approximative.
 - Rendu 2D "vue de dessus" (plan de l'écliptique), pas de vue 3D.
 
 ## Lancer en local

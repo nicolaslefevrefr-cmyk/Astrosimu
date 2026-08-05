@@ -69,6 +69,25 @@ export function gmOf(key){
   return r ? GM_SUN / r : 0;
 }
 
+// Curated list of major cities for the "my location" feature — only
+// longitude matters for orienting the ground-direction ray.
+export const CITIES = [
+  { name:'Paris', lon:2.35 }, { name:'Londres', lon:-0.13 },
+  { name:'New York', lon:-74.01 }, { name:'Los Angeles', lon:-118.24 },
+  { name:'San Francisco', lon:-122.42 }, { name:'Chicago', lon:-87.65 },
+  { name:'Mexico', lon:-99.13 }, { name:'São Paulo', lon:-46.63 },
+  { name:'Buenos Aires', lon:-58.38 }, { name:'Reykjavik', lon:-21.94 },
+  { name:'Madrid', lon:-3.70 }, { name:'Rome', lon:12.50 },
+  { name:'Berlin', lon:13.40 }, { name:'Moscou', lon:37.62 },
+  { name:'Le Caire', lon:31.24 }, { name:'Lagos', lon:3.38 },
+  { name:'Nairobi', lon:36.82 }, { name:'Dubaï', lon:55.30 },
+  { name:'New Delhi', lon:77.21 }, { name:'Pékin', lon:116.40 },
+  { name:'Shanghai', lon:121.47 }, { name:'Tokyo', lon:139.69 },
+  { name:'Séoul', lon:126.98 }, { name:'Singapour', lon:103.82 },
+  { name:'Sydney', lon:151.21 }, { name:'Auckland', lon:174.76 },
+  { name:'Honolulu', lon:-157.86 },
+];
+
 // ===========================================================
 // Time helpers
 // ===========================================================

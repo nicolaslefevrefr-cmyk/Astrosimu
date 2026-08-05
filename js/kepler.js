@@ -88,3 +88,14 @@ export function rotationAngleDeg(spinHours, jd){
   const hoursSinceJ2000 = daysSinceJ2000(jd) * 24;
   return norm360((hoursSinceJ2000 / spinHours) * 360);
 }
+
+// Greenwich Mean Sidereal Time (deg), standard IAU low-precision formula.
+// Used to orient a ground position (given only by longitude) within the
+// same inertial ecliptic frame as everything else in the scene — i.e.
+// "which way is Paris pointing right now" relative to the Sun/planets.
+export function earthGMSTDeg(jd){
+  let g = 280.46061837 + 360.98564736629 * (jd - 2451545.0);
+  g %= 360;
+  if (g < 0) g += 360;
+  return g;
+}

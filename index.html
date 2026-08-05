@@ -25,6 +25,7 @@
     </div>
   </div>
   <div class="hud-top-actions">
+    <button class="icon-btn" id="btnLocation" aria-label="Votre position">📍</button>
     <button class="icon-btn" id="btnInfo" aria-label="Informations">i</button>
     <button class="icon-btn" id="btnRecenter" aria-label="Recentrer sur le Soleil">⊙</button>
   </div>
@@ -41,37 +42,47 @@
 <nav class="body-dock" id="bodyDock" aria-label="Accès rapide aux astres"></nav>
 
 <!-- ============ BOTTOM TIME PANEL ============ -->
-<footer class="time-panel">
-  <div class="time-readout">
-    <div class="date-big" id="dateBig">--</div>
-    <div class="date-offset" id="dateOffset">t = 0</div>
-  </div>
+<footer class="time-panel" id="timePanel">
+  <button class="panel-handle" id="btnPanelToggle" aria-expanded="false">
+    <span class="date-compact" id="dateCompact">--</span>
+    <span class="handle-actions">
+      <span class="mini-btn" id="miniPlayBtn" aria-label="Lecture / pause">⏸</span>
+      <span class="chevron" id="panelChevron">▴</span>
+    </span>
+  </button>
 
-  <div class="time-row">
-    <button class="chip" id="btnPause">⏸ Pause</button>
-    <button class="chip" id="btnNow">⦿ Maintenant</button>
-    <button class="chip ghost" id="btnAsteroids">☄ Astéroïdes</button>
-  </div>
+  <div class="panel-body collapsed" id="panelBody">
+    <div class="time-readout">
+      <div class="date-big" id="dateBig">--</div>
+      <div class="date-offset" id="dateOffset">t = 0</div>
+    </div>
 
-  <div class="slider-block">
-    <label class="slider-label" for="speedSlider">
-      <span>Flux du temps (lecture continue)</span>
-      <span id="speedValue">0 j/s</span>
-    </label>
-    <input type="range" id="speedSlider" min="-30" max="30" step="0.5" value="0">
-  </div>
+    <div class="time-row">
+      <button class="chip" id="btnPause">⏸ Pause</button>
+      <button class="chip" id="btnNow">⦿ Maintenant</button>
+      <button class="chip ghost" id="btnAsteroids">☄ Astéroïdes</button>
+    </div>
 
-  <div class="slider-block">
-    <div class="slider-label"><span>Sauts temporels (n'affecte pas la vitesse)</span><span></span></div>
-    <div class="speed-presets" id="jumpRow"></div>
-  </div>
+    <div class="slider-block">
+      <label class="slider-label" for="speedSlider">
+        <span>Flux du temps (lecture continue)</span>
+        <span id="speedValue">0 j/s</span>
+      </label>
+      <input type="range" id="speedSlider" min="-30" max="30" step="0.5" value="0">
+    </div>
 
-  <div class="slider-block">
-    <label class="slider-label" for="scrubSlider">
-      <span>Naviguer dans le temps</span>
-      <span id="scrubValue">±0 j</span>
-    </label>
-    <input type="range" id="scrubSlider" min="-3650" max="3650" step="1" value="0">
+    <div class="slider-block">
+      <div class="slider-label"><span>Sauts temporels (n'affecte pas la vitesse)</span><span></span></div>
+      <div class="speed-presets" id="jumpRow"></div>
+    </div>
+
+    <div class="slider-block">
+      <label class="slider-label" for="scrubSlider">
+        <span>Naviguer dans le temps</span>
+        <span id="scrubValue">±0 j</span>
+      </label>
+      <input type="range" id="scrubSlider" min="-3650" max="3650" step="1" value="0">
+    </div>
   </div>
 </footer>
 
@@ -160,6 +171,26 @@
   </div>
 </div>
 
+<!-- ============ LOCATION SHEET ============ -->
+<div class="sheet-backdrop hidden" id="locationBackdrop"></div>
+<div class="sheet hidden" id="locationSheet" role="dialog" aria-label="Votre position sur Terre">
+  <div class="sheet-handle"></div>
+  <div class="sheet-header">
+    <h2>Votre position</h2>
+    <button class="icon-btn" id="btnCloseLocation" aria-label="Fermer">✕</button>
+  </div>
+  <div class="sheet-body">
+    <p class="hint">
+      Choisissez une ville : un repère partira du centre de la Terre dans cette direction,
+      pour visualiser l'alignement des astres vus depuis cet endroit. Le repère tourne avec
+      la rotation réelle de la Terre (temps sidéral) et son déplacement orbital.
+    </p>
+    <label>Ville
+      <select id="locationSelect"></select>
+    </label>
+  </div>
+</div>
+
 <!-- ============ INFO SHEET ============ -->
 <div class="sheet-backdrop hidden" id="infoBackdrop"></div>
 <div class="sheet hidden" id="infoSheet" role="dialog" aria-label="Informations">
@@ -187,6 +218,12 @@
       est ajoutée à titre illustratif.
     </p>
     <p class="hint">Pincez pour zoomer, glissez pour déplacer la vue. Fonctionne hors-ligne une fois installée (PWA).</p>
+    <p class="hint">
+      Le repère de position (📍) projette votre longitude sur le plan de l'écliptique via le
+      temps sidéral de Greenwich — l'inclinaison de l'axe terrestre (23,4°) n'est pas
+      représentée dans cette vue de dessus, la direction est donc approximative mais
+      correctement orientée et animée.
+    </p>
   </div>
 </div>
 

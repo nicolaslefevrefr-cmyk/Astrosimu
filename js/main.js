@@ -1,5 +1,5 @@
-import { PLANETS, SUN, MOON, GM_SUN, AU_KM, DAY_S, dateToJD, jdToDate } from './orbitalData.js';
-import { planetPosition, planetOrbitPath, moonPositionGeocentric, rotationAngleDeg } from './kepler.js';
+import { PLANETS, SUN, MOON, GM_SUN, AU_KM, DAY_S, CITIES, dateToJD, jdToDate } from './orbitalData.js';
+import { planetPosition, planetOrbitPath, moonPositionGeocentric, rotationAngleDeg, earthGMSTDeg } from './kepler.js';
 import { buildInitialState, integrateTrajectory, samplePosition, computeVariationFamily } from './physics.js';
 import { Renderer } from './render.js';
 
@@ -63,6 +63,8 @@ function refreshOrbitCache(jd){
 const headerEl = document.querySelector('.hud-top');
 const footerEl = document.querySelector('.time-panel');
 const lockPillEl = document.getElementById('lockPill');
+const dockElForSafeArea = document.getElementById('bodyDock');
+const zoomDockEl = document.querySelector('.zoom-dock');
 
 function updateSafeArea(){
   const hRect = headerEl.getBoundingClientRect();
@@ -73,6 +75,8 @@ function updateSafeArea(){
   }
   const bottom = window.innerHeight - fRect.top;
   renderer.setSafeArea({ top: top + 10, bottom: bottom + 10, left: 8, right: 8 });
+  dockElForSafeArea.style.bottom = (bottom + 12) + 'px';
+  zoomDockEl.style.bottom = (bottom + 12) + 'px';
 }
 new ResizeObserver(updateSafeArea).observe(headerEl);
 new ResizeObserver(updateSafeArea).observe(footerEl);
@@ -191,10 +195,31 @@ function setSpeed(v){
   speedSlider.value = String(v);
   speedValue.textContent = fmtSpeed(v);
   btnPause.textContent = v === 0 ? '▶ Lecture' : '⏸ Pause';
+  miniPlayBtn.textContent = v === 0 ? '▶' : '⏸';
 }
 
 speedSlider.addEventListener('input', () => setSpeed(Number(speedSlider.value)));
 btnPause.addEventListener('click', () => setSpeed(speed === 0 ? (lastSpeed || 1) : 0));
+
+// ---- collapsible bottom panel ----
+const panelBody = document.getElementById('panelBody');
+const btnPanelToggle = document.getElementById('btnPanelToggle');
+const miniPlayBtn = document.getElementById('miniPlayBtn');
+let panelExpanded = false;
+
+function setPanelExpanded(v){
+  panelExpanded = v;
+  panelBody.classList.toggle('collapsed', !v);
+  btnPanelToggle.setAttribute('aria-expanded', String(v));
+  requestAnimationFrame(updateSafeArea);
+  setTimeout(updateSafeArea, 260); // after the CSS transition settles
+}
+btnPanelToggle.addEventListener('click', () => setPanelExpanded(!panelExpanded));
+miniPlayBtn.addEventListener('click', (e) => {
+  e.stopPropagation();
+  setSpeed(speed === 0 ? (lastSpeed || 1) : 0);
+});
+setPanelExpanded(false);
 
 // Time-jump buttons: move the clock by a fixed increment once, without
 // touching the continuous playback speed at all.
@@ -225,8 +250,11 @@ btnNow.addEventListener('click', () => {
   manualScrub = false;
 });
 
+const COMPACT_FMT = new Intl.DateTimeFormat('fr-FR', { year:'numeric', month:'short', day:'2-digit' });
+
 function updateTimeReadouts(){
   dateBig.textContent = DATE_FMT.format(jdToDate(simJD));
+  document.getElementById('dateCompact').textContent = COMPACT_FMT.format(jdToDate(simJD));
   document.getElementById('epochReadout').textContent = 'JD ' + simJD.toFixed(2);
   if (!manualScrub){
     const off = Math.round(simJD - dateToJD(new Date()));
@@ -372,6 +400,28 @@ function wireSheet(sheetId, backdropId, openBtnId, closeBtnId){
 }
 wireSheet('infoSheet','infoBackdrop','btnInfo','btnCloseInfo');
 const asteroidSheetCtl = wireSheet('asteroidSheet','sheetBackdrop','btnAsteroids','btnCloseSheet');
+const locationSheetCtl = wireSheet('locationSheet','locationBackdrop','btnLocation','btnCloseLocation');
+
+// ===========================================================
+// "My location" ground-direction ray
+// ===========================================================
+const locationSelect = document.getElementById('locationSelect');
+let selectedCity = null; // { name, lon } | null
+
+const noneOpt = document.createElement('option');
+noneOpt.value = ''; noneOpt.textContent = 'Aucune (désactivé)';
+locationSelect.appendChild(noneOpt);
+CITIES.forEach((c, i) => {
+  const opt = document.createElement('option');
+  opt.value = String(i);
+  opt.textContent = `${c.name} (${c.lon >= 0 ? c.lon.toFixed(1)+'° E' : (-c.lon).toFixed(1)+'° O'})`;
+  locationSelect.appendChild(opt);
+});
+locationSelect.addEventListener('change', () => {
+  const v = locationSelect.value;
+  selectedCity = v === '' ? null : CITIES[Number(v)];
+  toast(selectedCity ? `Position : ${selectedCity.name}` : 'Repère de position désactivé');
+});
 
 document.getElementById('fAst_varToggle').addEventListener('change', e => {
   document.getElementById('variationParams').style.opacity = e.target.checked ? '1' : '0.4';
@@ -414,12 +464,12 @@ document.getElementById('btnAddAsteroid').addEventListener('click', () => {
     const t0 = performance.now();
     const state0 = buildInitialState(params);
     const spanDays = spanYears * 365.25;
-    const trajectory = integrateTrajectory(state0, simJD, spanDays, { dt:0.25, sampleEvery:4 });
+    const trajectory = integrateTrajectory(state0, simJD, spanDays, { dtMax:0.5, dtMin:0.0004, sampleIntervalDays:1 });
 
     let family = null;
     if (withVariation){
       statusEl.textContent = 'Calcul de la famille de trajectoires…';
-      family = computeVariationFamily(params, simJD, spanDays, marginPct, samples, 0.5);
+      family = computeVariationFamily(params, simJD, spanDays, marginPct, samples, { dtMax:0.6, dtMin:0.0008, sampleIntervalDays:2 });
     }
 
     const id = 'a' + (++astCounter) + '_' + Math.random().toString(36).slice(2,7);
@@ -630,6 +680,19 @@ function frame(now){
   if (selectedKey === 'moon') renderer.drawSelectionRing(msx, msy, mpx, MOON.color);
   if (renderer.cam.zoom > 400 || selectedKey === 'moon') renderer.drawLabel(MOON.name, msx, msy, mpx, MOON.color, selectedKey === 'moon');
 
+  // "my location" ground-direction ray, anchored to Earth, rotating with
+  // both Earth's real sidereal spin and its orbital motion.
+  if (selectedCity){
+    const gmst = earthGMSTDeg(simJD);
+    const theta = (gmst + selectedCity.lon) * Math.PI / 180;
+    const lengthAU = Math.min(3, Math.max(0.01, 220 / renderer.cam.zoom));
+    const tipWorld = { x: bodies.earth.x + lengthAU*Math.cos(theta), y: bodies.earth.y + lengthAU*Math.sin(theta) };
+    const a = renderer.worldToScreen(bodies.earth.x, bodies.earth.y);
+    const b = renderer.worldToScreen(tipWorld.x, tipWorld.y);
+    renderer.drawArrow(a.sx, a.sy, b.sx, b.sy, '#6fe3d6');
+    renderer.drawLabel(selectedCity.name, b.sx, b.sy, 2, '#6fe3d6', true);
+  }
+
   // placement-mode overlay
   if (placing === 'vector' && placePointWorld){
     const a = renderer.worldToScreen(placePointWorld.x, placePointWorld.y);
@@ -652,6 +715,20 @@ requestAnimationFrame(frame);
 // ===========================================================
 if ('serviceWorker' in navigator){
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register('service-worker.js').catch(() => {});
+    navigator.serviceWorker.register('service-worker.js').then(reg => {
+      // Always check for a fresher service worker on load, and again
+      // periodically — combined with the network-first fetch strategy in
+      // the worker itself, this keeps a reload from ever getting stuck on
+      // a stale cached build.
+      reg.update().catch(() => {});
+      setInterval(() => reg.update().catch(() => {}), 60 * 60 * 1000);
+    }).catch(() => {});
+
+    let refreshed = false;
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (refreshed) return;
+      refreshed = true;
+      window.location.reload();
+    });
   });
 }

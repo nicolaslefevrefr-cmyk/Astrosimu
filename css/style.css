@@ -86,10 +86,10 @@ input{ font-family:var(--font-mono); }
 
 /* ---------- body dock ---------- */
 .body-dock{
-  position:fixed; left:0; right:0; bottom:calc(238px + var(--safe-b));
+  position:fixed; left:0; right:0; bottom:120px;
   display:flex; gap:8px; padding:0 calc(12px + var(--safe-l)) 10px calc(12px + var(--safe-r));
   overflow-x:auto; -webkit-overflow-scrolling:touch; scrollbar-width:none;
-  pointer-events:auto;
+  pointer-events:auto; transition:bottom .25s ease;
 }
 .body-dock::-webkit-scrollbar{ display:none; }
 .body-chip{
@@ -104,10 +104,26 @@ input{ font-family:var(--font-mono); }
 /* ---------- bottom time panel ---------- */
 .time-panel{
   position:fixed; left:0; right:0; bottom:0;
-  padding:12px calc(14px + var(--safe-r)) calc(12px + var(--safe-b)) calc(14px + var(--safe-l));
+  padding:2px calc(14px + var(--safe-r)) calc(10px + var(--safe-b)) calc(14px + var(--safe-l));
   background:linear-gradient(to top, rgba(5,7,13,0.96), rgba(5,7,13,0.88) 70%, transparent);
   pointer-events:auto;
 }
+.panel-handle{
+  width:100%; display:flex; align-items:center; justify-content:space-between;
+  background:transparent; border:none; color:var(--text-hi); padding:12px 4px 8px;
+}
+.date-compact{ font-family:var(--font-mono); font-size:13px; letter-spacing:0.01em; }
+.handle-actions{ display:flex; align-items:center; gap:12px; }
+.mini-btn{
+  width:30px; height:30px; border-radius:50%; display:flex; align-items:center; justify-content:center;
+  background:var(--bg-panel); border:1px solid var(--line-strong); font-size:13px;
+}
+.chevron{ font-size:13px; color:var(--text-lo); transition:transform .25s ease; display:inline-block; }
+.panel-handle[aria-expanded="true"] .chevron{ transform:rotate(180deg); }
+
+.panel-body{ overflow:hidden; max-height:640px; opacity:1; transition:max-height .25s ease, opacity .2s ease; }
+.panel-body.collapsed{ max-height:0; opacity:0; pointer-events:none; }
+
 .time-readout{ display:flex; align-items:baseline; justify-content:space-between; margin-bottom:8px; }
 .date-big{ font-family:var(--font-mono); font-size:16px; color:var(--text-hi); letter-spacing:0.01em; }
 .date-offset{ font-family:var(--font-mono); font-size:11.5px; color:var(--cyan); }
@@ -152,8 +168,8 @@ input[type=range]::-moz-range-thumb{
 
 /* ---------- zoom dock ---------- */
 .zoom-dock{
-  position:fixed; right:calc(12px + var(--safe-r)); bottom:calc(320px + var(--safe-b));
-  display:flex; flex-direction:column; gap:8px; z-index:15;
+  position:fixed; right:calc(12px + var(--safe-r)); bottom:180px;
+  display:flex; flex-direction:column; gap:8px; z-index:15; transition:bottom .25s ease;
 }
 
 /* ---------- sheets (bottom drawers) ---------- */

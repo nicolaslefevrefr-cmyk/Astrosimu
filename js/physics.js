@@ -2,6 +2,8 @@ import { PLANETS, GM_SUN, AU_KM, DAY_S, gmOf } from './orbitalData.js';
 import { planetPosition, orbitToEcliptic } from './kepler.js';
 
 const DEG = Math.PI / 180;
+const SUN_RADIUS_AU = 696000 / AU_KM;   // treat a passage inside the Sun as a collision
+const ESCAPE_RADIUS_AU = 250;            // stop tracking once clearly out of the scene
 
 // Build a heliocentric ecliptic state vector [x,y,z,vx,vy,vz] (AU, AU/day)
 // from an intuitive parameterization: distance from Sun, speed, an in-plane
@@ -39,6 +41,11 @@ function acceleration(state, jd){
   return [ax, ay, az];
 }
 
+function accelMagnitude(state, jd){
+  const [ax, ay, az] = acceleration(state, jd);
+  return Math.hypot(ax, ay, az);
+}
+
 function derivative(state, jd){
   const [,, , vx, vy, vz] = state;
   const [ax, ay, az] = acceleration(state, jd);
@@ -63,37 +70,64 @@ function rk4Step(state, jd, dt){
   return out;
 }
 
-// Integrate both forward and backward from epoch jd0, return a time-sorted
-// array of samples: { jd, x, y, z }.
+// Reference acceleration: the Sun's pull at 1 AU. Used to scale the
+// adaptive step — a step "feels right" at dtMax when the local
+// acceleration matches this reference, and shrinks when a close
+// planetary encounter pushes the acceleration well above it.
+const REF_ACCEL = GM_SUN; // AU/day^2 at r = 1 AU
+
+// Adaptive-step integration: the time step shrinks whenever the total
+// gravitational acceleration on the body rises (e.g. a close approach
+// to a planet), which keeps fast-changing curvature well resolved
+// without paying for tiny steps everywhere else. Samples are recorded
+// at roughly even *time* intervals (via linear interpolation) so the
+// stored polyline stays smooth for rendering regardless of how the
+// underlying step size varied.
 export function integrateTrajectory(state0, jd0, spanDays, opts = {}){
-  const dt = opts.dt ?? 0.25;          // physics step, days
-  const sampleEvery = opts.sampleEvery ?? 4; // store every Nth step
-  const samples = [];
+  const dtMax = opts.dtMax ?? 0.5;       // days, far from any body
+  const dtMin = opts.dtMin ?? 0.0004;    // days (~35s), floor near close encounters
+  const sampleIntervalDays = opts.sampleIntervalDays ?? 1;
+  const maxSteps = opts.maxSteps ?? 150000;
 
-  // backward
-  let s = state0.slice();
-  let jd = jd0;
-  const back = [];
-  let steps = Math.round(spanDays / dt);
-  for (let i = 0; i <= steps; i++){
-    if (i % sampleEvery === 0) back.push({ jd, x: s[0], y: s[1], z: s[2] });
-    s = rk4Step(s, jd, -dt);
-    jd -= dt;
-  }
-  back.reverse();
-
-  // forward
-  s = state0.slice();
-  jd = jd0;
-  const fwd = [];
-  for (let i = 0; i <= steps; i++){
-    if (i % sampleEvery === 0) fwd.push({ jd, x: s[0], y: s[1], z: s[2] });
-    s = rk4Step(s, jd, dt);
-    jd += dt;
+  function adaptiveDt(state, jd){
+    const amag = accelMagnitude(state, jd);
+    const dt = dtMax * Math.sqrt(REF_ACCEL / Math.max(amag, 1e-12));
+    return Math.min(dtMax, Math.max(dtMin, dt));
   }
 
-  samples.push(...back, ...fwd.slice(1));
-  return samples;
+  function integrateDirection(sign){
+    const pts = [];
+    let s = state0.slice();
+    let jd = jd0;
+    let elapsed = 0;
+    let sinceSample = 0;
+    pts.push({ jd, x: s[0], y: s[1], z: s[2] });
+    let steps = 0;
+    while (elapsed < spanDays && steps < maxSteps){
+      let dt = adaptiveDt(s, jd);
+      if (elapsed + dt > spanDays) dt = spanDays - elapsed;
+      s = rk4Step(s, jd, sign * dt);
+      jd += sign * dt;
+      elapsed += dt;
+      sinceSample += dt;
+      steps++;
+      const r = Math.hypot(s[0], s[1], s[2]);
+      if (r < SUN_RADIUS_AU || r > ESCAPE_RADIUS_AU){
+        pts.push({ jd, x: s[0], y: s[1], z: s[2] });
+        break; // collided with the Sun, or clearly escaped the scene
+      }
+      if (sinceSample >= sampleIntervalDays || elapsed >= spanDays){
+        pts.push({ jd, x: s[0], y: s[1], z: s[2] });
+        sinceSample = 0;
+      }
+    }
+    return pts;
+  }
+
+  const back = integrateDirection(-1).reverse();
+  const fwd = integrateDirection(1);
+  back.pop(); // avoid duplicating the epoch point shared with fwd[0]
+  return [...back, ...fwd];
 }
 
 // Sample position at arbitrary jd from a precomputed trajectory via linear
@@ -115,7 +149,7 @@ export function samplePosition(trajectory, jd){
 
 // Generate a family of trajectories by perturbing distance, speed, angle,
 // inclination and node within +/- marginPct, uniformly sampled.
-export function computeVariationFamily(baseParams, jd0, spanDays, marginPct, samples, dt){
+export function computeVariationFamily(baseParams, jd0, spanDays, marginPct, samples, opts = {}){
   const family = [];
   const m = marginPct / 100;
   for (let i = 0; i < samples; i++){
@@ -128,7 +162,7 @@ export function computeVariationFamily(baseParams, jd0, spanDays, marginPct, sam
       lonDeg: baseParams.lonDeg + (Math.random()*2 - 1) * m * 20,
     };
     const st = buildInitialState(p);
-    family.push(integrateTrajectory(st, jd0, spanDays, { dt, sampleEvery: 6 }));
+    family.push(integrateTrajectory(st, jd0, spanDays, opts));
   }
   return family;
 }
