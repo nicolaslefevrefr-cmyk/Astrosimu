@@ -339,10 +339,17 @@ canvas.addEventListener('pointerdown', e => {
   pointers.set(e.pointerId, { x:e.clientX, y:e.clientY });
 
   if (placing === 'point'){
-    handlePlacePoint(e);
+    placePointerId = e.pointerId; // finalize on pointerup, so a plain tap still works
     return;
   }
-  if (placing === 'vector' && e.pointerId !== placePointerId) return; // ignore extra fingers
+  if (placing === 'vector'){
+    if (placeAimPointerId === null){
+      placeAimPointerId = e.pointerId;
+      const rect = canvas.getBoundingClientRect();
+      placeDragWorld = renderer.screenToWorld(e.clientX-rect.left, e.clientY-rect.top);
+    }
+    return; // ignore extra fingers while aiming
+  }
 
   if (pointers.size === 1){ gestureMoved = 0; gestureStartTarget = e.pointerId; }
   resetGestureRefs();
@@ -352,7 +359,7 @@ canvas.addEventListener('pointermove', e => {
   if (!pointers.has(e.pointerId)) return;
   pointers.set(e.pointerId, { x:e.clientX, y:e.clientY });
 
-  if (placing === 'vector' && e.pointerId === placePointerId){
+  if (placing === 'vector' && e.pointerId === placeAimPointerId){
     updatePlaceDrag(e);
     return;
   }
@@ -388,6 +395,18 @@ canvas.addEventListener('pointermove', e => {
 });
 
 function endPointer(e){
+  if (placing === 'point' && e.pointerId === placePointerId){
+    commitPlacePoint(e);
+    pointers.delete(e.pointerId);
+    resetGestureRefs();
+    return;
+  }
+  if (placing === 'vector' && e.pointerId === placeAimPointerId){
+    pointers.delete(e.pointerId);
+    resetGestureRefs();
+    finalizePlacement();
+    return;
+  }
   const wasSingleTap = pointers.size === 1 && gestureMoved < 6 && gestureStartTarget === e.pointerId
     && placing === null;
   pointers.delete(e.pointerId);
@@ -395,7 +414,14 @@ function endPointer(e){
   if (wasSingleTap) handleCanvasTap(e);
 }
 canvas.addEventListener('pointerup', endPointer);
-canvas.addEventListener('pointercancel', e => { pointers.delete(e.pointerId); resetGestureRefs(); });
+canvas.addEventListener('pointercancel', e => {
+  if ((placing === 'point' && e.pointerId === placePointerId) ||
+      (placing === 'vector' && e.pointerId === placeAimPointerId)){
+    endPlacement(true);
+  }
+  pointers.delete(e.pointerId);
+  resetGestureRefs();
+});
 canvas.addEventListener('pointerleave', e => { if (pointers.size && pointers.has(e.pointerId)){ pointers.delete(e.pointerId); resetGestureRefs(); } });
 
 function handleCanvasTap(e){
@@ -434,18 +460,18 @@ window.addEventListener('resize', () => { renderer.resize(); updateSafeArea(); }
 // ===========================================================
 // Sheets (asteroid panel + info panel)
 // ===========================================================
-function wireSheet(sheetId, backdropId, openBtnId, closeBtnId){
+function wireSheet(sheetId, backdropId, openBtnId, closeBtnId, nonModal=false){
   const sheet = document.getElementById(sheetId);
   const backdrop = document.getElementById(backdropId);
-  const open = () => { sheet.classList.remove('hidden'); backdrop.classList.remove('hidden'); };
+  const open = () => { sheet.classList.remove('hidden'); if (!nonModal) backdrop.classList.remove('hidden'); };
   const close = () => { sheet.classList.add('hidden'); backdrop.classList.add('hidden'); };
   if (openBtnId) document.getElementById(openBtnId).addEventListener('click', open);
   document.getElementById(closeBtnId).addEventListener('click', close);
-  backdrop.addEventListener('click', close);
+  if (!nonModal) backdrop.addEventListener('click', close);
   return { open, close };
 }
 wireSheet('infoSheet','infoBackdrop','btnInfo','btnCloseInfo');
-const asteroidSheetCtl = wireSheet('asteroidSheet','sheetBackdrop','btnAsteroids','btnCloseSheet');
+const asteroidSheetCtl = wireSheet('asteroidSheet','sheetBackdrop','btnAsteroids','btnCloseSheet', true);
 const locationSheetCtl = wireSheet('locationSheet','locationBackdrop','btnLocation','btnCloseLocation');
 
 // ===========================================================
@@ -572,7 +598,40 @@ function renderAsteroidList(){
 // ===========================================================
 // Rocket: launch from Earth
 // ===========================================================
-const rocketSheetCtl = wireSheet('rocketSheet','rocketBackdrop','btnRocket','btnCloseRocket');
+const rocketSheetCtl = wireSheet('rocketSheet','rocketBackdrop','btnRocket','btnCloseRocket', true);
+
+function jdToDatetimeLocal(jd){
+  const d = jdToDate(jd);
+  const pad = n => String(n).padStart(2,'0');
+  return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+function datetimeLocalToJD(str){
+  const d = new Date(str);
+  return isNaN(d.getTime()) ? null : dateToJD(d);
+}
+
+const rocLaunchDateInput = document.getElementById('fRoc_launchDate');
+document.getElementById('btnRocket').addEventListener('click', () => {
+  rocLaunchDateInput.value = jdToDatetimeLocal(simJD);
+  schedulePreview();
+});
+document.getElementById('btnRocLaunchNow').addEventListener('click', () => {
+  rocLaunchDateInput.value = jdToDatetimeLocal(simJD);
+  schedulePreview();
+});
+rocLaunchDateInput.addEventListener('input', schedulePreview);
+
+function readRocketLaunchJD(){
+  return datetimeLocalToJD(rocLaunchDateInput.value) ?? simJD;
+}
+
+let interceptThresholdAU = 100000 / AU_KM;
+const rocThresholdInput = document.getElementById('fRoc_threshold');
+rocThresholdInput.addEventListener('input', () => {
+  const km = Number(rocThresholdInput.value);
+  if (Number.isFinite(km) && km > 0) interceptThresholdAU = km / AU_KM;
+  schedulePreview();
+});
 
 const rocSiteSelect = document.getElementById('fRoc_site');
 CITIES.forEach((c, i) => {
@@ -611,29 +670,30 @@ document.getElementById('btnLaunchRocket').addEventListener('click', () => {
   const withVariation = document.getElementById('fRoc_varToggle').checked;
   const marginPct = Number(document.getElementById('fRoc_margin').value) || 5;
   const samples = Math.max(4, Math.min(60, Number(document.getElementById('fRoc_samples').value) || 24));
+  const launchJD = readRocketLaunchJD();
 
   const statusEl = document.getElementById('rocketComputeStatus');
   statusEl.textContent = 'Calcul de la trajectoire…';
 
   setTimeout(() => {
     const t0 = performance.now();
-    const earthPos = computeBodiesNow(simJD).earth;
-    const earthVel = bodyVelocity('earth', simJD);
+    const earthPos = computeBodiesNow(launchJD).earth;
+    const earthVel = bodyVelocity('earth', launchJD);
     const state0 = buildLaunchState(earthPos, earthVel, burn.deltaVKms, burn.burnAngleDeg, burn.burnInclDeg, LAUNCH_OFFSET_AU);
     const spanDays = spanYears * 365.25;
-    const trajectory = integrateTrajectory(state0, simJD, spanDays, { backDays:0 });
+    const trajectory = integrateTrajectory(state0, launchJD, spanDays, { backDays:0 });
 
     let family = null;
     if (withVariation){
       statusEl.textContent = 'Calcul de la famille de trajectoires…';
-      family = computeLaunchVariationFamily(earthPos, earthVel, burn, marginPct, samples, simJD, spanDays,
+      family = computeLaunchVariationFamily(earthPos, earthVel, burn, marginPct, samples, launchJD, spanDays,
         { dtMax:0.5, dtMin:0.0006, sampleIntervalDays:1.5, backDays:0 }, LAUNCH_OFFSET_AU);
     }
 
     const id = 'r' + (++rocketCounter) + '_' + Math.random().toString(36).slice(2,7);
     const color = ROCKET_COLORS[rockets.length % ROCKET_COLORS.length];
     const approaches = findCloseApproaches(trajectory, 'roc:'+id);
-    rockets.push({ id, name, color, burn, massKg, trajectory, family, spanYears, approaches });
+    rockets.push({ id, name, color, burn, massKg, trajectory, family, spanYears, launchJD, approaches });
     clearPreview();
     renderRocketList();
     const ms = (performance.now() - t0).toFixed(0);
@@ -699,23 +759,53 @@ function schedulePreview(){
 
 function computePreview(){
   const PREVIEW_OPTS = { dtMax:2.5, dtMin:0.03, sampleIntervalDays:4, maxSteps:4000 };
+  const astReadoutEl = document.getElementById('asteroidInterceptReadout');
+  const rocReadoutEl = document.getElementById('rocketInterceptReadout');
   try{
     if (!asteroidSheetEl.classList.contains('hidden')){
       const params = readAsteroidForm();
-      if (!Number.isFinite(params.distAU) || params.distAU <= 0 || !Number.isFinite(params.speedKms)) return;
+      if (!Number.isFinite(params.distAU) || params.distAU <= 0 || !Number.isFinite(params.speedKms)){
+        astReadoutEl.textContent = ''; return;
+      }
       const spanYears = Math.min(2, Number(document.getElementById('fAst_span').value) || 2);
       const st = buildInitialState(params);
       const trajectory = integrateTrajectory(st, simJD, spanYears*365.25, PREVIEW_OPTS);
       activePreview = { trajectory, color: '#ffffff' };
+
+      const approaches = findCloseApproaches(trajectory, null);
+      astReadoutEl.classList.remove('hit');
+      astReadoutEl.textContent = approaches.length
+        ? approachSummary(approaches)
+        : 'Aucun passage rapproché détecté (< 0,05 UA) sur la fenêtre affichée.';
     } else if (!rocketSheetEl.classList.contains('hidden')){
       const burn = readRocketBurn();
-      if (!Number.isFinite(burn.deltaVKms) || burn.deltaVKms <= 0) return;
-      const earthPos = computeBodiesNow(simJD).earth;
-      const earthVel = bodyVelocity('earth', simJD);
+      if (!Number.isFinite(burn.deltaVKms) || burn.deltaVKms <= 0){
+        rocReadoutEl.textContent = ''; return;
+      }
+      const launchJD = readRocketLaunchJD();
+      const earthPos = computeBodiesNow(launchJD).earth;
+      const earthVel = bodyVelocity('earth', launchJD);
       const st = buildLaunchState(earthPos, earthVel, burn.deltaVKms, burn.burnAngleDeg, burn.burnInclDeg, LAUNCH_OFFSET_AU);
       const spanYears = Math.min(1.5, Number(document.getElementById('fRoc_span').value) || 1.5);
-      const trajectory = integrateTrajectory(st, simJD, spanYears*365.25, { ...PREVIEW_OPTS, backDays:0 });
+      const trajectory = integrateTrajectory(st, launchJD, spanYears*365.25, { ...PREVIEW_OPTS, backDays:0 });
       activePreview = { trajectory, color: '#ffffff' };
+
+      const noteThreshold = Math.max(CLOSE_NOTE_AU, interceptThresholdAU);
+      const approaches = findCloseApproaches(trajectory, null, noteThreshold);
+      const toAsteroids = approaches.filter(a => a.isAsteroid);
+      const best = toAsteroids[0] || approaches[0];
+      if (!best){
+        rocReadoutEl.classList.remove('hit');
+        rocReadoutEl.textContent = 'Aucun objet suivi à proximité de cette trajectoire pour le moment.';
+      } else {
+        const isHit = best.minAU <= interceptThresholdAU && best.isAsteroid;
+        rocReadoutEl.classList.toggle('hit', isHit);
+        const km = (best.minAU*AU_KM).toLocaleString('fr-FR',{maximumFractionDigits:0});
+        const when = DATE_FMT.format(jdToDate(best.jd));
+        rocReadoutEl.textContent = isHit
+          ? `🎯 INTERCEPTION : ${best.name} à ${km} km le ${when}`
+          : `Approche la plus proche : ${best.name} à ${km} km le ${when} (seuil : ${(interceptThresholdAU*AU_KM).toLocaleString('fr-FR',{maximumFractionDigits:0})} km)`;
+      }
     }
   } catch(e){ /* ignore transient bad input while typing */ }
 }
@@ -729,7 +819,6 @@ const rocketSheetEl = document.getElementById('rocketSheet');
   document.getElementById(id).addEventListener('input', schedulePreview);
 });
 document.getElementById('btnAsteroids').addEventListener('click', schedulePreview);
-document.getElementById('btnRocket').addEventListener('click', schedulePreview);
 document.getElementById('btnCloseSheet').addEventListener('click', clearPreview);
 document.getElementById('btnCloseRocket').addEventListener('click', clearPreview);
 document.getElementById('sheetBackdrop').addEventListener('click', clearPreview);
@@ -737,16 +826,21 @@ document.getElementById('rocketBackdrop').addEventListener('click', clearPreview
 
 // ===========================================================
 // Asteroid: place-on-map mode
-//   1. tap "Placer sur la carte" -> tap the map to set position
-//   2. drag from that point to set direction + speed (arrow)
+//   1. tap "Placer sur la carte" -> tap the map once to set position
+//   2. a second tap (or a press-drag-release) sets direction + speed
 //   3. release -> numeric fields are filled in, ready to compute
-// A plain tap with no drag falls back to a circular-orbit velocity
-// at that distance, so placement always yields a sensible orbit.
+// The two steps are independent gestures on purpose: requiring one
+// continuous press-drag-release is unreliable on touch (a plain tap has
+// no move events at all), so step 2 accepts a fresh tap just as well as
+// a drag — whatever the finger's last position was becomes the aim.
+// A "circular orbit" button also lets you skip aiming entirely.
 // ===========================================================
 const placeBanner = document.getElementById('placeBanner');
 const placeBannerText = document.getElementById('placeBannerText');
+const btnPlaceCircular = document.getElementById('btnPlaceCircular');
 let placing = null;        // null | 'point' | 'vector'
-let placePointerId = null;
+let placePointerId = null; // pointer doing step 1 (set position)
+let placeAimPointerId = null; // pointer doing step 2 (aim direction/speed)
 let placePointWorld = null;
 let placeDragWorld = null;
 let placeSpeedBeforeHold = 0;
@@ -761,25 +855,32 @@ document.getElementById('btnPlaceOnMap').addEventListener('click', () => {
   asteroidSheetCtl.close();
   placeSpeedBeforeHold = speed; setSpeed(0);
   placing = 'point';
+  placePointerId = null; placeAimPointerId = null;
+  btnPlaceCircular.classList.add('hidden');
   placeBannerText.textContent = "Touchez la carte pour placer l'astéroïde";
   placeBanner.classList.remove('hidden');
 });
 
 function endPlacement(reopenSheet){
-  placing = null; placePointerId = null; placePointWorld = null; placeDragWorld = null;
+  placing = null; placePointerId = null; placeAimPointerId = null;
+  placePointWorld = null; placeDragWorld = null;
+  btnPlaceCircular.classList.add('hidden');
   placeBanner.classList.add('hidden');
   setSpeed(placeSpeedBeforeHold);
   if (reopenSheet) asteroidSheetCtl.open();
 }
 document.getElementById('btnPlaceCancel').addEventListener('click', () => endPlacement(true));
 
-function handlePlacePoint(e){
+// Step 1 complete: position is set, now waiting for a second, independent
+// gesture to aim the direction/speed.
+function commitPlacePoint(e){
   const rect = canvas.getBoundingClientRect();
   placePointWorld = renderer.screenToWorld(e.clientX - rect.left, e.clientY - rect.top);
   placeDragWorld = { ...placePointWorld };
-  placePointerId = e.pointerId;
   placing = 'vector';
-  placeBannerText.textContent = 'Glissez pour la direction et la vitesse, relâchez pour valider';
+  placeAimPointerId = null;
+  btnPlaceCircular.classList.remove('hidden');
+  placeBannerText.textContent = 'Touchez à nouveau pour viser la direction et la vitesse';
 }
 
 function updatePlaceDrag(e){
@@ -793,11 +894,9 @@ function updatePlaceDrag(e){
   }
 }
 
-canvas.addEventListener('pointerup', e => {
-  if (placing === 'vector' && e.pointerId === placePointerId) finalizePlacement();
-});
-canvas.addEventListener('pointercancel', e => {
-  if (placing === 'vector' && e.pointerId === placePointerId) endPlacement(true);
+btnPlaceCircular.addEventListener('click', () => {
+  placeDragWorld = { ...placePointWorld }; // zero-length -> circular fallback in finalizePlacement
+  finalizePlacement();
 });
 
 function finalizePlacement(){
@@ -829,6 +928,7 @@ function finalizePlacement(){
   document.getElementById('fAst_incl').value = '0';
 
   endPlacement(true);
+  schedulePreview();
   toast('Position et vitesse définies depuis la carte — vérifiez puis calculez');
 }
 
@@ -939,7 +1039,7 @@ function updateBodyInfoPanel(){
 // tracked object for how close it gets, so genuinely risky passes can
 // be surfaced as a warning instead of discovered by eye.
 // ===========================================================
-function findCloseApproaches(trajectory, selfKey){
+function findCloseApproaches(trajectory, selfKey, noteThresholdAU = CLOSE_NOTE_AU){
   const targets = [{ key:'sun', name:'Soleil', isObj:false }];
   for (const p of PLANETS) targets.push({ key:p.key, name:p.name, isObj:false });
   targets.push({ key:'moon', name:'Lune', isObj:false });
@@ -956,11 +1056,11 @@ function findCloseApproaches(trajectory, selfKey){
       if (!p) continue;
       const d = Math.hypot(s.x-p.x, s.y-p.y, s.z-(p.z||0));
       const cur = best.get(t.key);
-      if (!cur || d < cur.minAU) best.set(t.key, { minAU:d, jd:s.jd, name:t.name });
+      if (!cur || d < cur.minAU) best.set(t.key, { key:t.key, minAU:d, jd:s.jd, name:t.name, isAsteroid:t.key.startsWith('ast:') });
     }
   }
   const results = [];
-  for (const val of best.values()) if (val.minAU <= CLOSE_NOTE_AU) results.push(val);
+  for (const val of best.values()) if (val.minAU <= noteThresholdAU) results.push(val);
   results.sort((a,b) => a.minAU - b.minAU);
   return results;
 }

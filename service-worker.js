@@ -3,7 +3,7 @@
 // in 'activate' below. Also see the network-first fetch strategy: even
 // without bumping this, a reload while online always prefers the network,
 // so stale content should never really get "stuck" behind the cache.
-const CACHE = 'orrery-v3';
+const CACHE = 'orrery-v4';
 const ASSETS = [
   './',
   './index.html',
