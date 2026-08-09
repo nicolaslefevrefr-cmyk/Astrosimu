@@ -1,5 +1,5 @@
-import { PLANETS, SUN, MOON, GM_SUN, AU_KM, DAY_S, MASS_KG, CITIES, dateToJD, jdToDate } from './orbitalData.js';
-import { planetPosition, planetOrbitPath, moonPositionGeocentric, rotationAngleDeg, earthGMSTDeg } from './kepler.js';
+import { PLANETS, SUN, MOON, GM_SUN, AU_KM, DAY_S, MASS_KG, CITIES, KNOWN_ASTEROIDS, dateToJD, jdToDate } from './orbitalData.js';
+import { planetPosition, planetOrbitPath, moonPositionGeocentric, rotationAngleDeg, earthGMSTDeg, knownAsteroidPosition, knownAsteroidOrbitPath } from './kepler.js';
 import { buildInitialState, buildLaunchState, integrateTrajectory, samplePosition, computeVariationFamily, computeLaunchVariationFamily, acceleration } from './physics.js';
 import { Renderer } from './render.js';
 
@@ -41,13 +41,15 @@ const ROCKET_COLORS = ['#6fe3d6','#a0e86f','#e8a0f0','#f0d06f'];
 
 const FOCUS_ZOOM = {
   sun: 80, mercury: 900, venus: 500, earth: 380, moon: 60000,
-  mars: 260, jupiter: 70, saturn: 45, uranus: 20, neptune: 13
+  mars: 260, jupiter: 70, saturn: 45, uranus: 20, neptune: 13,
+  apophis: 2500, bennu: 3000, eros: 800, ceres: 100, vesta: 120,
 };
 
 const ALL_BODY_META = [
   { key:'sun', name:'Soleil', color: SUN.color },
   ...PLANETS.map(p => ({ key:p.key, name:p.name, color:p.color })),
   { key:'moon', name:'Lune', color: MOON.color },
+  ...KNOWN_ASTEROIDS.map(a => ({ key:a.key, name:a.name, color:a.color })),
 ];
 
 // ===========================================================
@@ -62,6 +64,7 @@ function computeBodiesNow(jd){
     y: bodies.earth.y + moonGeo.y,
     z: bodies.earth.z + moonGeo.z,
   };
+  for (const a of KNOWN_ASTEROIDS) bodies[a.key] = knownAsteroidPosition(a, jd);
   return bodies;
 }
 
@@ -69,6 +72,7 @@ function refreshOrbitCache(jd){
   if (orbitCache.jd !== null && Math.abs(jd - orbitCache.jd) < 25) return;
   orbitCache.jd = jd;
   for (const p of PLANETS) orbitCache.paths[p.key] = planetOrbitPath(p, jd, 160);
+  for (const a of KNOWN_ASTEROIDS) orbitCache.paths[a.key] = knownAsteroidOrbitPath(a, 160);
 }
 
 // Finite-difference heliocentric velocity (AU/day) for any tracked body,
@@ -212,27 +216,38 @@ const DATE_FMT = new Intl.DateTimeFormat('fr-FR', {
   year:'numeric', month:'short', day:'2-digit', hour:'2-digit', minute:'2-digit'
 });
 
-// Logarithmic-feeling mapping for the time-flow slider: a cubic curve
-// gives lots of fine control near zero (quasi-pause) and grows quickly
-// as the slider is pushed toward its extremes.
-const MAX_FLOW_SPEED = 300; // days/sec ceiling
+// True logarithmic mapping for the time-flow slider: equal slider
+// increments correspond to equal *ratio* changes in speed, so there's as
+// much control between 1 s/s and 1 h/s as there is between 1 day/s and
+// 300 days/s. The slowest non-zero speed is real time (1 simulated
+// second per real second); 0 is an exact, separate "pause".
+const MIN_FLOW_SPEED = 1 / 86400; // days/sec == real time
+const MAX_FLOW_SPEED = 300;       // days/sec ceiling
+const FLOW_LOG_RANGE = Math.log(MAX_FLOW_SPEED / MIN_FLOW_SPEED);
+
 function rawToSpeed(raw){
-  const s = Math.sign(raw) * MAX_FLOW_SPEED * Math.pow(Math.abs(raw)/100, 3);
-  return Math.round(s * 1000) / 1000;
+  if (raw === 0) return 0;
+  const frac = Math.min(1, Math.abs(raw) / 100);
+  const s = MIN_FLOW_SPEED * Math.exp(FLOW_LOG_RANGE * frac);
+  return Math.sign(raw) * s;
 }
 function speedToRaw(v){
   if (v === 0) return 0;
-  return Math.sign(v) * 100 * Math.pow(Math.abs(v)/MAX_FLOW_SPEED, 1/3);
+  const frac = Math.log(Math.abs(v) / MIN_FLOW_SPEED) / FLOW_LOG_RANGE;
+  return Math.sign(v) * 100 * Math.max(0, Math.min(1, frac));
 }
 
 function fmtSpeed(v){
   if (v === 0) return 'Pause';
   const abs = Math.abs(v);
+  const secPerSec = abs * 86400;
   let txt;
-  if (abs >= 30) txt = (abs/30).toFixed(1) + ' mois/s';
-  else if (abs >= 1) txt = abs.toFixed(abs < 2 ? 2 : 0) + ' j/s';
-  else txt = (abs*24).toFixed(1) + ' h/s';
-  return (v < 0 ? '−' : '+') + txt;
+  if (secPerSec <= 1.5) txt = 'Temps réel';
+  else if (abs < 1/24) txt = secPerSec.toFixed(0) + ' s/s';
+  else if (abs < 1) txt = (abs*24).toFixed(2) + ' h/s';
+  else if (abs < 30) txt = abs.toFixed(abs < 2 ? 2 : 0) + ' j/s';
+  else txt = (abs/30).toFixed(1) + ' mois/s';
+  return secPerSec <= 1.5 ? txt : (v < 0 ? '−' : '+') + txt;
 }
 
 function setSpeed(v){
@@ -245,7 +260,7 @@ function setSpeed(v){
 }
 
 speedSlider.addEventListener('input', () => setSpeed(rawToSpeed(Number(speedSlider.value))));
-btnPause.addEventListener('click', () => setSpeed(speed === 0 ? (lastSpeed || 1) : 0));
+btnPause.addEventListener('click', () => setSpeed(speed === 0 ? (lastSpeed || MIN_FLOW_SPEED) : 0));
 
 // ---- collapsible bottom panel ----
 const panelBody = document.getElementById('panelBody');
@@ -596,34 +611,215 @@ function renderAsteroidList(){
 }
 
 // ===========================================================
+// "Gros-croiseur" generator: given an impact date + approach speed/angle,
+// work out (precisely, by integrating backward from the exact impact
+// state) what state the asteroid must be in right now to reach Earth
+// exactly then. The approximate (distAU, speed, angle, incl, lon) shown
+// in the form afterward are for reference/further hand-editing only —
+// the object actually added uses the exact computed trajectory, so the
+// impact is guaranteed regardless of any small representational gap
+// between the two (see readme: the 5-field form always starts an object
+// exactly at its ascending node, which the impactor's state generally
+// isn't sitting at by the time it reaches "now").
+// ===========================================================
+let impDateAnchor = simJD;
+let impFineMode = false;
+const impDateSlider = document.getElementById('fImp_dateSlider');
+const impDateValue = document.getElementById('fImp_dateValue');
+const impFineToggle = document.getElementById('fImp_fineToggle');
+
+function impApplySliderRange(){
+  if (impFineMode){ impDateSlider.min = '1'; impDateSlider.max = '20'; impDateSlider.step = '0.05'; }
+  else { impDateSlider.min = '1'; impDateSlider.max = '3650'; impDateSlider.step = '1'; }
+}
+function impCurrentJD(){ return impDateAnchor + Number(impDateSlider.value); }
+function impUpdateLabel(){ impDateValue.textContent = DATE_FMT.format(jdToDate(impCurrentJD())); }
+
+document.getElementById('btnAsteroids').addEventListener('click', () => {
+  impDateAnchor = simJD;
+  impApplySliderRange();
+  impDateSlider.value = impFineMode ? '5' : '200';
+  impUpdateLabel();
+});
+impFineToggle.addEventListener('change', () => {
+  impFineMode = impFineToggle.checked;
+  impDateAnchor = impCurrentJD();
+  impApplySliderRange();
+  impDateSlider.value = impFineMode ? '5' : '200';
+  impUpdateLabel();
+});
+impDateSlider.addEventListener('input', impUpdateLabel);
+impApplySliderRange();
+impDateSlider.value = '200';
+
+// Derive an approximate (distAU, speedKms, angleDeg, inclDeg, lonDeg)
+// equivalent for a raw state vector — exact for inclination (from the
+// true 3D angular momentum), approximate for the rest (ecliptic-plane
+// projection), since the 5-field model can only exactly represent a
+// state sitting at its own ascending node.
+function stateToApproxParams(state, jd){
+  const [x,y,z,vx,vy,vz] = state;
+  const distAU = Math.hypot(x, y);
+  let lonDeg = Math.atan2(y, x) * 180/Math.PI; if (lonDeg < 0) lonDeg += 360;
+  const hx = y*vz - z*vy, hy = z*vx - x*vz, hz = x*vy - y*vx;
+  const hmag = Math.hypot(hx, hy, hz);
+  const inclDeg = hmag > 1e-12 ? Math.acos(Math.max(-1, Math.min(1, hz/hmag))) * 180/Math.PI : 0;
+  const nodeRad = lonDeg * Math.PI/180;
+  const radial = { x:Math.cos(nodeRad), y:Math.sin(nodeRad) };
+  const tangential = { x:-Math.sin(nodeRad), y:Math.cos(nodeRad) };
+  const vr = vx*radial.x + vy*radial.y;
+  const vt = vx*tangential.x + vy*tangential.y;
+  const angleDeg = Math.atan2(vr, vt) * 180/Math.PI;
+  const speedKms = Math.hypot(vx, vy) * AU_KM/DAY_S;
+  return { distAU, speedKms, angleDeg, inclDeg, lonDeg };
+}
+
+document.getElementById('btnGenerateImpactor').addEventListener('click', () => {
+  const jdImpact = impCurrentJD();
+  if (jdImpact <= simJD){
+    toast("La date d'impact doit être dans le futur par rapport à l'horloge actuelle");
+    return;
+  }
+  const impactSpeedKms = Number(document.getElementById('fImp_speed').value) || 19;
+  const approachAngleDeg = Number(document.getElementById('fImp_angle').value) || 45;
+
+  const statusEl = document.getElementById('computeStatus');
+  statusEl.textContent = 'Calcul de la trajectoire d\'impact…';
+
+  setTimeout(() => {
+    const t0 = performance.now();
+
+    // Targeting a precise impact means backward-integrating through a
+    // close planetary encounter, which is numerically delicate (and, for
+    // some approach geometries, briefly chaotic). Rather than accept
+    // whatever the first attempt lands on, try a few starting offsets
+    // from Earth and refine each with a couple of feedback-correction
+    // passes (aim point += observed miss vector), keeping the best hit
+    // found. Step counts are capped per attempt so a bad geometry fails
+    // fast instead of grinding for seconds.
+    const CAP = { maxSteps: 6000 };
+    const earthAtImpact = computeBodiesNow(jdImpact).earth;
+    const earthVelI = bodyVelocity('earth', jdImpact);
+    let best = null;
+    const earthRadiusAU = PLANETS.find(p => p.key === 'earth').radiusKm / AU_KM;
+    outer:
+    for (const mult of [3, 1, 5, 8]){
+      const trialOffset = mult * earthRadiusAU;
+      let aim = { x:earthAtImpact.x, y:earthAtImpact.y, z:earthAtImpact.z };
+      for (let iter = 0; iter < 3; iter++){
+        const impactState = buildLaunchState(aim, earthVelI, impactSpeedKms, approachAngleDeg, 0, trialOffset);
+        const backTraj = integrateTrajectory(impactState, jdImpact, 0, Object.assign({ backDays: jdImpact - simJD }, CAP));
+        const stateNow = backTraj[0];
+        const fwdState = [stateNow.x, stateNow.y, stateNow.z, stateNow.vx, stateNow.vy, stateNow.vz];
+        const fwdTraj = integrateTrajectory(fwdState, simJD, jdImpact - simJD, Object.assign({ backDays:0 }, CAP));
+        const finalPt = fwdTraj[fwdTraj.length - 1];
+        const missVec = { x: earthAtImpact.x-finalPt.x, y: earthAtImpact.y-finalPt.y, z: earthAtImpact.z-finalPt.z };
+        const missAU = Math.hypot(missVec.x, missVec.y, missVec.z);
+        if (!best || missAU < best.missAU) best = { trajectory: fwdTraj, missAU, stateAtNow: stateNow };
+        if (missAU * AU_KM < 20000) break outer; // close enough to call it a hit
+        aim = { x: aim.x+missVec.x, y: aim.y+missVec.y, z: aim.z+missVec.z };
+      }
+    }
+
+    const trajectory = best.trajectory;
+    const s = best.stateAtNow;
+    const params = stateToApproxParams([s.x,s.y,s.z,s.vx,s.vy,s.vz], simJD);
+
+    document.getElementById('fAst_dist').value = params.distAU.toFixed(3);
+    document.getElementById('fAst_speed').value = Math.min(80, params.speedKms).toFixed(2);
+    document.getElementById('fAst_angle').value = params.angleDeg.toFixed(1);
+    document.getElementById('fAst_incl').value = params.inclDeg.toFixed(1);
+    document.getElementById('fAst_lon').value = params.lonDeg.toFixed(1);
+
+    const id = 'a' + (++astCounter) + '_' + Math.random().toString(36).slice(2,7);
+    const color = ASTEROID_COLORS[asteroids.length % ASTEROID_COLORS.length];
+    const name = document.getElementById('fAst_name').value.trim() || `Impacteur ${astCounter}`;
+    const massKg = Number(document.getElementById('fAst_mass').value) || 0;
+    const approaches = findCloseApproaches(trajectory, 'ast:'+id);
+    asteroids.push({ id, name, color, params, massKg, trajectory, family:null, spanYears:null, approaches, isImpactor:true });
+    renderAsteroidList();
+
+    const ms = (performance.now() - t0).toFixed(0);
+    const missKm = best.missAU * AU_KM;
+    const precision = missKm < 20000
+      ? 'impact confirmé'
+      : `écart résiduel ≈ ${missKm.toLocaleString('fr-FR',{maximumFractionDigits:0})} km`;
+    statusEl.textContent = `Impacteur calculé (${trajectory.length} points, ${ms} ms, ${precision}).`;
+    toast(`${name} : impact prévu le ${DATE_FMT.format(jdToDate(jdImpact))} (${precision})`, 4500);
+  }, 20);
+});
+
+// ===========================================================
 // Rocket: launch from Earth
 // ===========================================================
 const rocketSheetCtl = wireSheet('rocketSheet','rocketBackdrop','btnRocket','btnCloseRocket', true);
 
-function jdToDatetimeLocal(jd){
-  const d = jdToDate(jd);
-  const pad = n => String(n).padStart(2,'0');
-  return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
-}
-function datetimeLocalToJD(str){
-  const d = new Date(str);
-  return isNaN(d.getTime()) ? null : dateToJD(d);
-}
+// Launch date: a single slider, no popup/keyboard entry needed, so the
+// map + preview trajectory stay visible and update live while dragging.
+// A checkbox switches its range between a wide coarse sweep (±10 years)
+// and a narrow fine one (±10 days), re-centered on the currently chosen
+// date each time it's toggled.
+let rocLaunchJD = simJD;
+let rocDateAnchor = simJD;
+let rocFineMode = false;
+const rocDateSlider = document.getElementById('fRoc_dateSlider');
+const rocDateValue = document.getElementById('fRoc_dateValue');
+const rocFineToggle = document.getElementById('fRoc_fineToggle');
 
-const rocLaunchDateInput = document.getElementById('fRoc_launchDate');
-document.getElementById('btnRocket').addEventListener('click', () => {
-  rocLaunchDateInput.value = jdToDatetimeLocal(simJD);
+function rocApplySliderRange(){
+  if (rocFineMode){ rocDateSlider.min = '-10'; rocDateSlider.max = '10'; rocDateSlider.step = '0.02'; }
+  else { rocDateSlider.min = '-3650'; rocDateSlider.max = '3650'; rocDateSlider.step = '1'; }
+  rocDateSlider.value = '0';
+}
+function rocUpdateDateLabel(){
+  rocDateValue.textContent = DATE_FMT.format(jdToDate(rocLaunchJD));
+}
+function rocResetToNow(){
+  rocLaunchJD = simJD; rocDateAnchor = simJD;
+  rocApplySliderRange();
+  rocUpdateDateLabel();
+  schedulePreview();
+}
+document.getElementById('btnRocket').addEventListener('click', rocResetToNow);
+document.getElementById('btnRocLaunchNow').addEventListener('click', rocResetToNow);
+rocFineToggle.addEventListener('change', () => {
+  rocFineMode = rocFineToggle.checked;
+  rocDateAnchor = rocLaunchJD;
+  rocApplySliderRange();
+});
+rocDateSlider.addEventListener('input', () => {
+  rocLaunchJD = rocDateAnchor + Number(rocDateSlider.value);
+  rocUpdateDateLabel();
   schedulePreview();
 });
-document.getElementById('btnRocLaunchNow').addEventListener('click', () => {
-  rocLaunchDateInput.value = jdToDatetimeLocal(simJD);
+rocApplySliderRange();
+
+function readRocketLaunchJD(){ return rocLaunchJD; }
+
+// Rocket type presets: pick one to prefill delta-v/mass/burn — loosely
+// inspired by real mission classes (impulsive-burn model, so no
+// continuous low-thrust "ion drive" preset).
+const ROCKET_PRESETS = [
+  { name:'— Personnalisé —', deltaVKms:null },
+  { name:'Sonde légère (300 kg, Δv 3 km/s)', massKg:300, deltaVKms:3, burnAngleDeg:0 },
+  { name:'Satellite standard (1 500 kg, Δv 4 km/s)', massKg:1500, deltaVKms:4, burnAngleDeg:0 },
+  { name:'Lanceur lourd (12 000 kg, Δv 3.2 km/s)', massKg:12000, deltaVKms:3.2, burnAngleDeg:0 },
+  { name:'Sonde rapide type New Horizons (480 kg, Δv 16.5 km/s)', massKg:480, deltaVKms:16.5, burnAngleDeg:0 },
+];
+const rocPresetSelect = document.getElementById('fRoc_preset');
+ROCKET_PRESETS.forEach((p, i) => {
+  const opt = document.createElement('option');
+  opt.value = String(i); opt.textContent = p.name;
+  rocPresetSelect.appendChild(opt);
+});
+rocPresetSelect.addEventListener('change', () => {
+  const p = ROCKET_PRESETS[Number(rocPresetSelect.value)];
+  if (!p || p.deltaVKms === null) return;
+  document.getElementById('fRoc_dv').value = p.deltaVKms;
+  document.getElementById('fRoc_mass').value = p.massKg;
+  document.getElementById('fRoc_angle').value = p.burnAngleDeg;
   schedulePreview();
 });
-rocLaunchDateInput.addEventListener('input', schedulePreview);
-
-function readRocketLaunchJD(){
-  return datetimeLocalToJD(rocLaunchDateInput.value) ?? simJD;
-}
 
 let interceptThresholdAU = 100000 / AU_KM;
 const rocThresholdInput = document.getElementById('fRoc_threshold');
@@ -748,9 +944,10 @@ function renderRocketList(){
 // precise calculation via "Calculer" / "Lancer".
 // ===========================================================
 let activePreview = null; // { trajectory, color }
+let activeCheckpoints = null; // { points:[{jd,rx,ry,tx,ty,label}], targetColor }
 let previewTimer = null;
 
-function clearPreview(){ activePreview = null; }
+function clearPreview(){ activePreview = null; activeCheckpoints = null; }
 
 function schedulePreview(){
   clearTimeout(previewTimer);
@@ -797,6 +994,7 @@ function computePreview(){
       if (!best){
         rocReadoutEl.classList.remove('hit');
         rocReadoutEl.textContent = 'Aucun objet suivi à proximité de cette trajectoire pour le moment.';
+        activeCheckpoints = null;
       } else {
         const isHit = best.minAU <= interceptThresholdAU && best.isAsteroid;
         rocReadoutEl.classList.toggle('hit', isHit);
@@ -805,6 +1003,22 @@ function computePreview(){
         rocReadoutEl.textContent = isHit
           ? `🎯 INTERCEPTION : ${best.name} à ${km} km le ${when}`
           : `Approche la plus proche : ${best.name} à ${km} km le ${when} (seuil : ${(interceptThresholdAU*AU_KM).toLocaleString('fr-FR',{maximumFractionDigits:0})} km)`;
+
+        // Time-synchronized checkpoints: show where the rocket AND the
+        // target body actually are at the same handful of moments, so
+        // "the paths cross" can be told apart from "they're there at
+        // the same time" — which is what an actual interception needs.
+        const jd0 = trajectory[0].jd, jd1 = trajectory[trajectory.length-1].jd;
+        const nCk = 6;
+        const points = [];
+        for (let i = 1; i <= nCk; i++){
+          const t = jd0 + (jd1 - jd0) * i / (nCk + 1);
+          const rp = samplePosition(trajectory, t);
+          const tp = resolveTargetPosition(best.key, t);
+          if (rp && tp) points.push({ jd:t, rx:rp.x, ry:rp.y, tx:tp.x, ty:tp.y, label:'+'+Math.round(t-launchJD)+'j' });
+        }
+        const targetMeta = ALL_BODY_META.find(b => b.key === best.key);
+        activeCheckpoints = { points, targetColor: targetMeta ? targetMeta.color : '#6fe3d6', targetName: best.name };
       }
     }
   } catch(e){ /* ignore transient bad input while typing */ }
@@ -1019,6 +1233,7 @@ function updateBodyInfoPanel(){
   if (selectedKey !== 'sun') pushRow('Soleil', SUN.color, {x:0,y:0,z:0});
   for (const p of PLANETS) if (selectedKey !== p.key) pushRow(p.name, p.color, bodies[p.key]);
   if (selectedKey !== 'moon') pushRow('Lune', MOON.color, bodies.moon);
+  for (const a of KNOWN_ASTEROIDS) if (selectedKey !== a.key) pushRow(a.name, a.color, bodies[a.key]);
   for (const a of asteroids) if (selectedKey !== 'ast:'+a.id){
     const p = samplePosition(a.trajectory, simJD); pushRow(a.name, a.color, p);
   }
@@ -1039,10 +1254,22 @@ function updateBodyInfoPanel(){
 // tracked object for how close it gets, so genuinely risky passes can
 // be surfaced as a warning instead of discovered by eye.
 // ===========================================================
+const KNOWN_ASTEROID_KEYS = new Set(KNOWN_ASTEROIDS.map(a => a.key));
+function isAsteroidTarget(key){ return key.startsWith('ast:') || KNOWN_ASTEROID_KEYS.has(key); }
+
+// Resolve any tracked key (body, known asteroid, user asteroid, rocket)
+// to its position at an arbitrary jd — used for the aiming checkpoints.
+function resolveTargetPosition(key, jd){
+  if (key.startsWith('ast:')){ const a = asteroids.find(x => x.id === key.slice(4)); return a ? samplePosition(a.trajectory, jd) : null; }
+  if (key.startsWith('roc:')){ const r = rockets.find(x => x.id === key.slice(4)); return r ? samplePosition(r.trajectory, jd) : null; }
+  return computeBodiesNow(jd)[key] || null;
+}
+
 function findCloseApproaches(trajectory, selfKey, noteThresholdAU = CLOSE_NOTE_AU){
   const targets = [{ key:'sun', name:'Soleil', isObj:false }];
   for (const p of PLANETS) targets.push({ key:p.key, name:p.name, isObj:false });
   targets.push({ key:'moon', name:'Lune', isObj:false });
+  for (const a of KNOWN_ASTEROIDS) targets.push({ key:a.key, name:a.name, isObj:false });
   for (const a of asteroids) if ('ast:'+a.id !== selfKey) targets.push({ key:'ast:'+a.id, name:a.name, isObj:true, obj:a });
   for (const r of rockets) if ('roc:'+r.id !== selfKey) targets.push({ key:'roc:'+r.id, name:'🚀 '+r.name, isObj:true, obj:r });
 
@@ -1056,7 +1283,7 @@ function findCloseApproaches(trajectory, selfKey, noteThresholdAU = CLOSE_NOTE_A
       if (!p) continue;
       const d = Math.hypot(s.x-p.x, s.y-p.y, s.z-(p.z||0));
       const cur = best.get(t.key);
-      if (!cur || d < cur.minAU) best.set(t.key, { key:t.key, minAU:d, jd:s.jd, name:t.name, isAsteroid:t.key.startsWith('ast:') });
+      if (!cur || d < cur.minAU) best.set(t.key, { key:t.key, minAU:d, jd:s.jd, name:t.name, isAsteroid:isAsteroidTarget(t.key) });
     }
   }
   const results = [];
@@ -1101,6 +1328,9 @@ function frame(now){
 
   for (const p of PLANETS){
     renderer.drawOrbitPath(orbitCache.paths[p.key], p.color, 0.28);
+  }
+  for (const a of KNOWN_ASTEROIDS){
+    renderer.drawOrbitPath(orbitCache.paths[a.key], a.color, 0.16);
   }
 
   for (const a of asteroids){
@@ -1147,6 +1377,26 @@ function frame(now){
     }
   }
 
+  // time-synchronized checkpoints: "the rocket is here when the target
+  // is there" pairs, connected by a faint line, so aiming for an actual
+  // interception (not just a crossing path) is visually tractable.
+  if (activeCheckpoints){
+    for (const cp of activeCheckpoints.points){
+      const r = renderer.worldToScreen(cp.rx, cp.ry);
+      const t = renderer.worldToScreen(cp.tx, cp.ty);
+      renderer.ctx.save();
+      renderer.ctx.setLineDash([2,3]);
+      renderer.ctx.strokeStyle = 'rgba(255,255,255,0.25)';
+      renderer.ctx.lineWidth = 1;
+      renderer.ctx.beginPath();
+      renderer.ctx.moveTo(r.sx, r.sy); renderer.ctx.lineTo(t.sx, t.sy);
+      renderer.ctx.stroke();
+      renderer.ctx.restore();
+      renderer.drawTick(r.sx, r.sy, '#ffb454', cp.label, false);
+      renderer.drawTick(t.sx, t.sy, activeCheckpoints.targetColor, cp.label, true);
+    }
+  }
+
   const sunSpin = rotationAngleDeg(SUN.spinHours, simJD);
   const sunDrawn = renderer.drawBody(SUN, bodies.sun, simJD, sunSpin, 10);
   hitTargets.push({ key:'sun', sx:sunDrawn.sx, sy:sunDrawn.sy, r:Math.max(sunDrawn.px, 16) });
@@ -1167,6 +1417,16 @@ function frame(now){
   hitTargets.push({ key:'moon', sx:msx, sy:msy, r:Math.max(mpx, 16) });
   if (selectedKey === 'moon') renderer.drawSelectionRing(msx, msy, mpx, MOON.color);
   if (renderer.cam.zoom > 400 || selectedKey === 'moon') renderer.drawLabel(MOON.name, msx, msy, mpx, MOON.color, selectedKey === 'moon');
+
+  for (const a of KNOWN_ASTEROIDS){
+    const spin = rotationAngleDeg(a.spinHours, simJD);
+    const { sx, sy, px } = renderer.drawBody(a, bodies[a.key], simJD, spin, 3);
+    hitTargets.push({ key:a.key, sx, sy, r:Math.max(px, 16) });
+    if (selectedKey === a.key) renderer.drawSelectionRing(sx, sy, px, a.color);
+    if (renderer.cam.zoom > 200 || selectedKey === a.key){
+      renderer.drawLabel(a.name, sx, sy, px, a.color, selectedKey === a.key);
+    }
+  }
 
   // "my location" ground-direction ray, anchored to Earth, rotating with
   // both Earth's real sidereal spin and its orbital motion.

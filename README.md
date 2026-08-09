@@ -10,12 +10,11 @@ conçue mobile-first et installable en PWA.
   d'éléments orbitaux képlériens (époque J2000, précision de l'ordre de
   l'arcminute — voir panneau "À propos" dans l'app).
 - Défilement du temps bidirectionnel : un curseur "flux du temps" à
-  échelle logarithmique (beaucoup de finesse près de la pause, montée
-  rapide vers les extrêmes, jusqu'à 300 j/s), un curseur de navigation
-  temporelle (±10 ans), des boutons de saut ponctuel (±1 j / ±1 sem /
-  ±1 mois / ±1 an, qui déplacent l'horloge sans changer la vitesse de
-  lecture), et un bouton "Maintenant". Tout est regroupé dans un panneau
-  du bas repliable (touchez la barre pour déplier).
+  échelle **logarithmique** (le temps réel — 1 s simulée/s — est
+  accessible juste après la pause, puis ça grimpe vite jusqu'à 300 j/s),
+  un curseur de navigation temporelle (±10 ans), des boutons de saut
+  ponctuel, et un bouton "Maintenant". Tout est regroupé dans un panneau
+  du bas repliable.
 - Rotation propre de chaque astre (période sidérale réelle) en plus de
   la révolution orbitale.
 - Pan / zoom tactile (glisser, pincer) et souris (glisser, molette),
@@ -66,6 +65,28 @@ conçue mobile-first et installable en PWA.
 - PWA installable, fonctionne hors-ligne après premier chargement, et se
   met à jour automatiquement au rechargement dès qu'une nouvelle version
   est en ligne (stratégie "réseau d'abord", pas besoin de vider le cache).
+- Astéroïdes réels (Apophis, Bennu, Éros, Cérès, Vesta) modélisés comme
+  des astres à part entière, avec leurs propres éléments orbitaux.
+- Panneaux astéroïde/fusée non-modaux : la carte reste visible et
+  utilisable (pan/zoom/tap) pendant que vous réglez les paramètres, avec
+  un aperçu de trajectoire recalculé en direct à chaque changement.
+- Placement d'un astéroïde sur la carte en deux gestes indépendants
+  (un tap pour la position, un second tap ou un glisser pour la
+  direction/vitesse) — fonctionne de façon fiable au tactile.
+- Générateur de fusées avec plusieurs types pré-configurés (sonde
+  légère, satellite standard, lanceur lourd, sonde rapide type New
+  Horizons), une date de lancement réglable par curseur (bascule
+  grossier ±10 ans / fin ±10 jours) sans jamais fermer le panneau, et
+  des repères temporels synchronisés sur la carte montrant où se
+  trouvent la fusée et l'astre le plus proche au même instant — pour
+  viser une vraie interception plutôt qu'un simple croisement de
+  trajectoires.
+- Générateur de "gros-croiseur" : donnez une date d'impact, une vitesse
+  et un angle d'approche, l'outil recherche numériquement (par
+  itérations) les paramètres exacts qui font percuter la Terre à cette
+  date précise, et ajoute l'astéroïde résultant à la simulation.
+- Seuil d'interception configurable et lecture en direct de la
+  rencontre la plus proche pendant le réglage d'une fusée.
 
 ## Limites connues (assumées, voir aussi le panneau "À propos")
 

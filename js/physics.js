@@ -198,7 +198,7 @@ export function integrateTrajectory(state0, jd0, spanDays, opts = {}){
 
   const back = integrateDirection(-1, backDays).reverse();
   const fwd = integrateDirection(1, spanDays);
-  if (back.length) back.pop(); // avoid duplicating the epoch point shared with fwd[0]
+  if (back.length && fwd.length) back.pop(); // avoid duplicating the epoch point shared with fwd[0]
   return back.length || fwd.length ? [...back, ...fwd] : [{ jd:jd0, x:state0[0], y:state0[1], z:state0[2], vx:state0[3], vy:state0[4], vz:state0[5] }];
 }
 

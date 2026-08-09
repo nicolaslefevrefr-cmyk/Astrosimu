@@ -273,6 +273,28 @@ export class Renderer{
     ctx.stroke();
   }
 
+  // Compact tick + small label, no pill background — used for the
+  // rocket/target "same moment" checkpoint pairs, where several of these
+  // are drawn close together and a full drawLabel() pill would clutter.
+  drawTick(sx, sy, color, label, labelBelow=false){
+    const { ctx } = this;
+    ctx.beginPath();
+    ctx.arc(sx, sy, 3, 0, Math.PI*2);
+    ctx.fillStyle = color;
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(5,7,13,0.9)';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+    if (label){
+      ctx.font = '600 9.5px -apple-system, sans-serif';
+      ctx.fillStyle = color;
+      ctx.textBaseline = labelBelow ? 'top' : 'bottom';
+      ctx.textAlign = 'center';
+      ctx.fillText(label, sx, sy + (labelBelow ? 6 : -6));
+      ctx.textAlign = 'left';
+    }
+  }
+
   drawSelectionRing(sx, sy, px, color){
     const { ctx } = this;
     ctx.beginPath();

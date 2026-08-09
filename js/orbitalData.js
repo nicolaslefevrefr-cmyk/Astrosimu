@@ -99,6 +99,34 @@ export const CITIES = [
 ];
 
 // ===========================================================
+// Real, named asteroids modeled as fixed extra bodies (like the
+// planets), using static osculating elements at a given epoch —
+// mean anomaly is propagated linearly (M = M0 + n·Δt) with no
+// secular precession of the other elements. This is accurate near
+// the stated epoch and degrades gracefully further away, consistent
+// with the "educational, not mission-grade" precision of the rest of
+// the app. Elements sourced from JPL Small-Body Database / Horizons
+// and Wikipedia (cross-checked), J2000 ecliptic frame.
+// ===========================================================
+export const KNOWN_ASTEROIDS = [
+  { key:'apophis', name:'Apophis', color:'#c98a63', radiusKm:0.17, spinHours:30.56,
+    epoch:2459215.5, a:0.9225071817289903, e:0.1915216893501022, I:3.336751320066756,
+    node:204.0389272089208, peri:126.6520518368553, M0:127.3225632013606, nDeg:1.112370442 },
+  { key:'bennu', name:'Bennu', color:'#8f8983', radiusKm:0.245, spinHours:4.296,
+    epoch:2455562.5, a:1.1264, e:0.2038, I:6.0349,
+    node:2.0609, peri:66.2231, M0:101.7039, nDeg:0.824628 },
+  { key:'eros', name:'Éros', color:'#ab9a7e', radiusKm:8.42, spinHours:5.27,
+    epoch:2458000.5, a:1.4579, e:0.2226, I:10.828,
+    node:304.32, peri:178.82, M0:71.280, nDeg:0.559876 },
+  { key:'ceres', name:'Cérès', color:'#a8a4a0', radiusKm:469.7, spinHours:9.07,
+    epoch:2459600.5, a:2.77, e:0.0785, I:10.6,
+    node:80.3, peri:73.6, M0:291.4, nDeg:0.214286 },
+  { key:'vesta', name:'Vesta', color:'#cbc0a8', radiusKm:262.7, spinHours:5.342,
+    epoch:2460200.5, a:2.362, e:0.0894, I:7.14,
+    node:103.71, peri:151.66, M0:169.35, nDeg:0.271528 },
+];
+
+// ===========================================================
 // Time helpers
 // ===========================================================
 export function dateToJD(date){

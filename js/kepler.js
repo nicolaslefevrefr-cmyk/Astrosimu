@@ -69,7 +69,7 @@ export function planetOrbitPath(planet, jd, n = 180){
     const E = (i / n) * 2 * Math.PI;
     const xp = a * (Math.cos(E) - e);
     const yp = a * Math.sqrt(1 - e*e) * Math.sin(E);
-    pts.push(orbitToEcliptic(xp, yp, I, (w*180/Math.PI), (node)));
+    pts.push(orbitToEcliptic(xp, yp, I, w, node));
   }
   return pts;
 }
@@ -82,6 +82,26 @@ export function moonPositionGeocentric(jd){
   const node = MOON.node0 + MOON.nodedot * d;
   const a = MOON.a_km / 149597870.7;
   return elementsToPosition(a, MOON.e, MOON.I, L, peri, node);
+}
+
+// Real, named asteroid -> heliocentric position (AU), static osculating
+// elements with linear mean-anomaly propagation (see KNOWN_ASTEROIDS).
+export function knownAsteroidPosition(ast, jd){
+  const M = ast.M0 + ast.nDeg * (jd - ast.epoch);
+  const L = ast.peri + M;
+  return { ...elementsToPosition(ast.a, ast.e, ast.I, L, ast.peri, ast.node), a:ast.a, e:ast.e, I:ast.I };
+}
+
+export function knownAsteroidOrbitPath(ast, n = 160){
+  const w = ast.peri - ast.node;
+  const pts = [];
+  for (let i = 0; i <= n; i++){
+    const E = (i / n) * 2 * Math.PI;
+    const xp = ast.a * (Math.cos(E) - ast.e);
+    const yp = ast.a * Math.sqrt(1 - ast.e*ast.e) * Math.sin(E);
+    pts.push(orbitToEcliptic(xp, yp, ast.I, w, ast.node));
+  }
+  return pts;
 }
 
 export function rotationAngleDeg(spinHours, jd){

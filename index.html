@@ -154,6 +154,35 @@
     </div>
 
     <div class="variation-block">
+      <div class="hint" style="margin:0 0 8px;">
+        🎯 <strong>Générer un gros-croiseur</strong> — calcule automatiquement (précisément)
+        les paramètres qui font que cet astéroïde percute la Terre à la date choisie.
+      </div>
+      <div class="field-row">
+        <label>Vitesse d'impact (km/s)
+          <input type="number" id="fImp_speed" value="19" step="0.5" min="1" max="72">
+        </label>
+        <label>Angle d'approche (°)
+          <input type="number" id="fImp_angle" value="45" step="1" min="0" max="360">
+        </label>
+      </div>
+      <div class="slider-block">
+        <label class="slider-label" for="fImp_dateSlider">
+          <span>Date d'impact</span>
+          <span id="fImp_dateValue">--</span>
+        </label>
+        <input type="range" id="fImp_dateSlider" min="1" max="3650" step="1" value="200">
+        <label class="switch-row" style="margin-top:6px;">
+          <input type="checkbox" id="fImp_fineToggle">
+          <span>Réglage fin (± 10 jours)</span>
+        </label>
+      </div>
+      <div class="btn-row">
+        <button class="btn-primary" id="btnGenerateImpactor">🎯 Générer l'impacteur</button>
+      </div>
+    </div>
+
+    <div class="variation-block">
       <label class="switch-row">
         <input type="checkbox" id="fAst_varToggle">
         <span>Famille de trajectoires (± incertitude)</span>
@@ -204,15 +233,17 @@
     <p class="hint">
       La poussée est définie par rapport au mouvement de la Terre — 0° = prograde (accélère),
       180° = rétrograde (freine), 90°/270° = radial. La carte reste utilisable pendant que
-      vous réglez ces paramètres : la trajectoire se dessine en direct.
+      vous réglez ces paramètres : la trajectoire se dessine en direct, avec des repères
+      ambre (fusée) / couleur de la cible reliés par un trait — chaque paire montre où se
+      trouvent les deux au même instant, pour viser une vraie interception.
     </p>
 
     <div class="field-grid">
+      <label>Type de fusée
+        <select id="fRoc_preset"></select>
+      </label>
       <label>Site de lancement
         <select id="fRoc_site"></select>
-      </label>
-      <label>Date de lancement
-        <input type="datetime-local" id="fRoc_launchDate">
       </label>
       <label>Delta-v (km/s)
         <input type="number" id="fRoc_dv" value="4" step="0.1" min="0.05" max="40">
@@ -231,6 +262,18 @@
       </label>
       <label>Seuil d'interception (km)
         <input type="number" id="fRoc_threshold" value="100000" min="1000" max="10000000" step="1000">
+      </label>
+    </div>
+
+    <div class="slider-block">
+      <label class="slider-label" for="fRoc_dateSlider">
+        <span id="fRoc_dateLabel">Date de lancement</span>
+        <span id="fRoc_dateValue">--</span>
+      </label>
+      <input type="range" id="fRoc_dateSlider" min="-3650" max="3650" step="1" value="0">
+      <label class="switch-row" style="margin-top:6px;">
+        <input type="checkbox" id="fRoc_fineToggle">
+        <span>Réglage fin (± 10 jours)</span>
       </label>
     </div>
 
@@ -312,6 +355,12 @@
       (période et précession correctes, faible précision absolue).
     </p>
     <p class="hint">
+      Apophis, Bennu, Éros, Cérès et Vesta sont modélisés avec leurs éléments orbitaux réels
+      (sources JPL/Horizons), figés à une époque de référence : la position est propagée par
+      simple anomalie moyenne linéaire, sans précession séculaire — fiable près de l'époque
+      indiquée, dérive progressivement au-delà de quelques années.
+    </p>
+    <p class="hint">
       Les astéroïdes sont propagés comme particules de masse négligeable : leur trajectoire ne dépend
       donc pas de la masse saisie (principe d'équivalence), la masse ne sert qu'à l'affichage
       (énergie cinétique). L'intégration utilise Runge-Kutta d'ordre 4 avec la gravité du Soleil et
@@ -323,6 +372,11 @@
       est ajoutée à titre illustratif.
     </p>
     <p class="hint">Pincez pour zoomer, glissez pour déplacer la vue. Fonctionne hors-ligne une fois installée (PWA).</p>
+    <p class="hint">
+      Le générateur d'impacteur cherche numériquement (par itérations) l'état initial qui
+      percute la Terre à la date choisie ; l'écart résiduel obtenu est affiché — certaines
+      géométries d'approche sont plus difficiles à cibler précisément que d'autres.
+    </p>
     <p class="hint">
       Le repère de position (📍) projette votre longitude sur le plan de l'écliptique via le
       temps sidéral de Greenwich — l'inclinaison de l'axe terrestre (23,4°) n'est pas
