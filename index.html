@@ -25,7 +25,6 @@
     </div>
   </div>
   <div class="hud-top-actions">
-    <button class="icon-btn" id="btnLocation" aria-label="Votre position">📍</button>
     <button class="icon-btn" id="btnInfo" aria-label="Informations">i</button>
     <button class="icon-btn" id="btnRecenter" aria-label="Recentrer sur le Soleil">⊙</button>
   </div>
@@ -42,17 +41,15 @@
 <!-- ============ BODY QUICK-SELECT DOCK ============ -->
 <nav class="body-dock" id="bodyDock" aria-label="Accès rapide aux astres"></nav>
 
-<!-- ============ BOTTOM TIME PANEL ============ -->
-<footer class="time-panel" id="timePanel">
-  <button class="panel-handle" id="btnPanelToggle" aria-expanded="false">
-    <span class="date-compact" id="dateCompact">--</span>
-    <span class="handle-actions">
-      <span class="mini-btn" id="miniPlayBtn" aria-label="Lecture / pause">⏸</span>
-      <span class="chevron" id="panelChevron">▴</span>
-    </span>
-  </button>
-
-  <div class="panel-body collapsed" id="panelBody">
+<!-- ============ TIME SHEET ============ -->
+<div class="sheet-backdrop hidden" id="timeBackdrop"></div>
+<div class="sheet hidden sheet-nonmodal" id="timeSheet" role="dialog" aria-label="Gestion du temps">
+  <div class="sheet-handle"></div>
+  <div class="sheet-header">
+    <h2>🕐 Temps</h2>
+    <button class="icon-btn" id="btnCloseTime" aria-label="Fermer">✕</button>
+  </div>
+  <div class="sheet-body">
     <div class="time-readout">
       <div class="date-big" id="dateBig">--</div>
       <div class="date-offset" id="dateOffset">t = 0</div>
@@ -61,10 +58,6 @@
     <div class="time-row">
       <button class="chip" id="btnPause">⏸ Pause</button>
       <button class="chip" id="btnNow">⦿ Maintenant</button>
-    </div>
-    <div class="time-row">
-      <button class="chip ghost" id="btnAsteroids">☄ Astéroïdes</button>
-      <button class="chip ghost" id="btnRocket">🚀 Fusée</button>
     </div>
 
     <div class="slider-block">
@@ -88,7 +81,23 @@
       <input type="range" id="scrubSlider" min="-3650" max="3650" step="1" value="0">
     </div>
   </div>
-</footer>
+</div>
+
+<!-- ============ BOTTOM TAB BAR ============ -->
+<nav class="tab-bar" id="tabBar" aria-label="Panneaux">
+  <button class="tab-btn" id="btnTabTime" aria-label="Temps">
+    <span class="tab-icon" id="tabTimeIcon">🕐</span><span class="tab-label">Temps</span>
+  </button>
+  <button class="tab-btn" id="btnAsteroids" aria-label="Astéroïdes">
+    <span class="tab-icon">☄</span><span class="tab-label">Astéroïdes</span>
+  </button>
+  <button class="tab-btn" id="btnRocket" aria-label="Fusée">
+    <span class="tab-icon">🚀</span><span class="tab-label">Fusée</span>
+  </button>
+  <button class="tab-btn" id="btnLocation" aria-label="Votre position">
+    <span class="tab-icon">📍</span><span class="tab-label">Position</span>
+  </button>
+</nav>
 
 <!-- ============ ZOOM CONTROLS (mobile-friendly) ============ -->
 <div class="zoom-dock">
@@ -321,7 +330,7 @@
 
 <!-- ============ LOCATION SHEET ============ -->
 <div class="sheet-backdrop hidden" id="locationBackdrop"></div>
-<div class="sheet hidden" id="locationSheet" role="dialog" aria-label="Votre position sur Terre">
+<div class="sheet hidden sheet-nonmodal" id="locationSheet" role="dialog" aria-label="Votre position sur Terre">
   <div class="sheet-handle"></div>
   <div class="sheet-header">
     <h2>Votre position</h2>

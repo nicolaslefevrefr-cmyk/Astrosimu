@@ -9,12 +9,15 @@ conçue mobile-first et installable en PWA.
 - Positions du Soleil, des 8 planètes et de la Lune calculées à partir
   d'éléments orbitaux képlériens (époque J2000, précision de l'ordre de
   l'arcminute — voir panneau "À propos" dans l'app).
+- Interface en onglets : une barre de bulles en bas (Temps / Astéroïdes /
+  Fusée / Position) ouvre chacune son propre panneau non-modal — la
+  carte reste toujours visible et utilisable, et un seul panneau est
+  ouvert à la fois.
 - Défilement du temps bidirectionnel : un curseur "flux du temps" à
   échelle **logarithmique** (le temps réel — 1 s simulée/s — est
   accessible juste après la pause, puis ça grimpe vite jusqu'à 300 j/s),
   un curseur de navigation temporelle (±10 ans), des boutons de saut
-  ponctuel, et un bouton "Maintenant". Tout est regroupé dans un panneau
-  du bas repliable.
+  ponctuel, et un bouton "Maintenant" — tous dans l'onglet "Temps".
 - Rotation propre de chaque astre (période sidérale réelle) en plus de
   la révolution orbitale.
 - Pan / zoom tactile (glisser, pincer) et souris (glisser, molette),
@@ -67,9 +70,8 @@ conçue mobile-first et installable en PWA.
   est en ligne (stratégie "réseau d'abord", pas besoin de vider le cache).
 - Astéroïdes réels (Apophis, Bennu, Éros, Cérès, Vesta) modélisés comme
   des astres à part entière, avec leurs propres éléments orbitaux.
-- Panneaux astéroïde/fusée non-modaux : la carte reste visible et
-  utilisable (pan/zoom/tap) pendant que vous réglez les paramètres, avec
-  un aperçu de trajectoire recalculé en direct à chaque changement.
+- Panneaux astéroïde/fusée : aperçu de trajectoire recalculé en direct
+  à chaque changement de paramètre, sans jamais bloquer la carte.
 - Placement d'un astéroïde sur la carte en deux gestes indépendants
   (un tap pour la position, un second tap ou un glisser pour la
   direction/vitesse) — fonctionne de façon fiable au tactile.

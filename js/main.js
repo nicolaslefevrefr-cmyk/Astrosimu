@@ -91,7 +91,7 @@ function bodyVelocity(key, jd){
 // hidden or unreachable behind a panel.
 // ===========================================================
 const headerEl = document.querySelector('.hud-top');
-const footerEl = document.querySelector('.time-panel');
+const footerEl = document.querySelector('.tab-bar');
 const lockPillEl = document.getElementById('lockPill');
 const dockElForSafeArea = document.getElementById('bodyDock');
 const zoomDockEl = document.querySelector('.zoom-dock');
@@ -256,31 +256,12 @@ function setSpeed(v){
   speedSlider.value = String(speedToRaw(v));
   speedValue.textContent = fmtSpeed(v);
   btnPause.textContent = v === 0 ? '▶ Lecture' : '⏸ Pause';
-  miniPlayBtn.textContent = v === 0 ? '▶' : '⏸';
+  const tabIcon = document.getElementById('tabTimeIcon');
+  if (tabIcon) tabIcon.textContent = v === 0 ? '⏸' : '▶';
 }
 
 speedSlider.addEventListener('input', () => setSpeed(rawToSpeed(Number(speedSlider.value))));
 btnPause.addEventListener('click', () => setSpeed(speed === 0 ? (lastSpeed || MIN_FLOW_SPEED) : 0));
-
-// ---- collapsible bottom panel ----
-const panelBody = document.getElementById('panelBody');
-const btnPanelToggle = document.getElementById('btnPanelToggle');
-const miniPlayBtn = document.getElementById('miniPlayBtn');
-let panelExpanded = false;
-
-function setPanelExpanded(v){
-  panelExpanded = v;
-  panelBody.classList.toggle('collapsed', !v);
-  btnPanelToggle.setAttribute('aria-expanded', String(v));
-  requestAnimationFrame(updateSafeArea);
-  setTimeout(updateSafeArea, 260); // after the CSS transition settles
-}
-btnPanelToggle.addEventListener('click', () => setPanelExpanded(!panelExpanded));
-miniPlayBtn.addEventListener('click', (e) => {
-  e.stopPropagation();
-  setSpeed(speed === 0 ? (lastSpeed || 1) : 0);
-});
-setPanelExpanded(false);
 
 // Time-jump buttons: move the clock by a fixed increment once, without
 // touching the continuous playback speed at all.
@@ -311,11 +292,8 @@ btnNow.addEventListener('click', () => {
   manualScrub = false;
 });
 
-const COMPACT_FMT = new Intl.DateTimeFormat('fr-FR', { year:'numeric', month:'short', day:'2-digit' });
-
 function updateTimeReadouts(){
   dateBig.textContent = DATE_FMT.format(jdToDate(simJD));
-  document.getElementById('dateCompact').textContent = COMPACT_FMT.format(jdToDate(simJD));
   document.getElementById('epochReadout').textContent = 'JD ' + simJD.toFixed(2);
   if (!manualScrub){
     const off = Math.round(simJD - dateToJD(new Date()));
@@ -487,7 +465,30 @@ function wireSheet(sheetId, backdropId, openBtnId, closeBtnId, nonModal=false){
 }
 wireSheet('infoSheet','infoBackdrop','btnInfo','btnCloseInfo');
 const asteroidSheetCtl = wireSheet('asteroidSheet','sheetBackdrop','btnAsteroids','btnCloseSheet', true);
-const locationSheetCtl = wireSheet('locationSheet','locationBackdrop','btnLocation','btnCloseLocation');
+const locationSheetCtl = wireSheet('locationSheet','locationBackdrop','btnLocation','btnCloseLocation', true);
+const timeSheetCtl = wireSheet('timeSheet','timeBackdrop','btnTabTime','btnCloseTime', true);
+
+// Bottom tab bar: only one of {Temps, Astéroïdes, Fusée, Position} is
+// open at a time. Each button already has its own "open" listener via
+// wireSheet above (or below, for the rocket sheet) — this just makes
+// sure the *other* sheets get out of the way and the tab bar reflects
+// which one is active, regardless of listener registration order.
+const TAB_SHEET_IDS = ['timeSheet', 'asteroidSheet', 'rocketSheet', 'locationSheet'];
+const TAB_BTN_IDS = { timeSheet:'btnTabTime', asteroidSheet:'btnAsteroids', rocketSheet:'btnRocket', locationSheet:'btnLocation' };
+function wireTabExclusive(btnId, sheetElId){
+  document.getElementById(btnId).addEventListener('click', () => {
+    document.querySelectorAll('.tab-bar .tab-btn').forEach(b => b.classList.remove('active'));
+    document.getElementById(btnId).classList.add('active');
+    TAB_SHEET_IDS.forEach(id => { if (id !== sheetElId) document.getElementById(id).classList.add('hidden'); });
+    requestAnimationFrame(updateSafeArea);
+  });
+}
+Object.entries(TAB_BTN_IDS).forEach(([sheetId, btnId]) => wireTabExclusive(btnId, sheetId));
+['btnCloseTime','btnCloseSheet','btnCloseRocket','btnCloseLocation'].forEach(id => {
+  document.getElementById(id).addEventListener('click', () => {
+    document.querySelectorAll('.tab-bar .tab-btn').forEach(b => b.classList.remove('active'));
+  });
+});
 
 // ===========================================================
 // "My location" ground-direction ray
