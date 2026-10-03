@@ -1,5 +1,5 @@
 import { PLANETS, SUN, MOON, GM_SUN, AU_KM, DAY_S, MASS_KG, CITIES, KNOWN_ASTEROIDS, dateToJD, jdToDate } from './orbitalData.js';
-import { planetPosition, planetOrbitPath, moonPositionGeocentric, rotationAngleDeg, earthGMSTDeg, knownAsteroidPosition, knownAsteroidOrbitPath } from './kepler.js';
+import { planetPosition, planetOrbitPath, moonPositionGeocentric, rotationAngleDeg, earthGMSTDeg, knownAsteroidStateAtEpoch } from './kepler.js';
 import { buildInitialState, buildLaunchState, integrateTrajectory, samplePosition, computeVariationFamily, computeLaunchVariationFamily, acceleration } from './physics.js';
 import { Renderer } from './render.js';
 
@@ -53,6 +53,59 @@ const ALL_BODY_META = [
 ];
 
 // ===========================================================
+// Known asteroids: real, gravitationally-perturbed trajectories
+// ===========================================================
+// A pure two-body (Keplerian) model can only ever draw an asteroid's orbit
+// as one fixed, unchanging ellipse. Real close planetary encounters bend
+// the path and change the orbit afterwards — most famously Apophis, which
+// passes roughly 32,000 km above Earth on 2029-04-13 (closer than
+// geostationary satellites) and has its own orbital period shift from
+// ~0.89 to ~1.16 years as a direct result. No two-body model can reproduce
+// that, however good its starting elements are. So each known asteroid's
+// position is instead taken from a real trajectory: a state vector built
+// from its stored osculating elements at their epoch, numerically
+// integrated with the same N-body Runge-Kutta engine used for user
+// asteroids and rockets (Sun + 8 planets, adaptive step size that
+// automatically tightens during a close encounter). The result is cached
+// once per asteroid and sampled like any other trajectory.
+// Window is anchored on *today*, not on each asteroid's own data epoch —
+// epochs differ per asteroid (2010–2025) and don't necessarily bracket
+// "now" the way a user actually browses the scene. ±20 years around today
+// comfortably covers the 2029 Apophis encounter either way.
+const KNOWN_ASTEROID_WINDOW_YEARS = 20;
+const knownAsteroidWindow = (() => {
+  const nowJD = dateToJD(new Date());
+  return { start: nowJD - KNOWN_ASTEROID_WINDOW_YEARS*365.25, end: nowJD + KNOWN_ASTEROID_WINDOW_YEARS*365.25 };
+})();
+const knownAsteroidTrajectoryCache = {};
+
+function getKnownAsteroidTrajectory(ast){
+  let traj = knownAsteroidTrajectoryCache[ast.key];
+  if (traj) return traj;
+  const state0 = knownAsteroidStateAtEpoch(ast);
+  const backDays = Math.max(0, ast.epoch - knownAsteroidWindow.start);
+  const spanDays = Math.max(0, knownAsteroidWindow.end - ast.epoch);
+  traj = integrateTrajectory(state0, ast.epoch, spanDays, {
+    backDays, dtMax: 2.0, dtMin: 0.0005, eta: 0.03,
+    sampleIntervalDays: 1.5, minSampleIntervalDays: 0.01, maxSteps: 150000,
+  });
+  knownAsteroidTrajectoryCache[ast.key] = traj;
+  return traj;
+}
+
+// Decimate a long cached trajectory down to a manageable number of points
+// for drawing the on-screen orbit line (position lookups still use the
+// full-resolution trajectory via samplePosition).
+function decimatePath(points, maxPoints = 400){
+  if (points.length <= maxPoints) return points;
+  const step = points.length / maxPoints;
+  const out = [];
+  for (let i = 0; i < points.length; i += step) out.push(points[Math.floor(i)]);
+  out.push(points[points.length - 1]);
+  return out;
+}
+
+// ===========================================================
 // Body positions for a given time
 // ===========================================================
 function computeBodiesNow(jd){
@@ -64,7 +117,7 @@ function computeBodiesNow(jd){
     y: bodies.earth.y + moonGeo.y,
     z: bodies.earth.z + moonGeo.z,
   };
-  for (const a of KNOWN_ASTEROIDS) bodies[a.key] = knownAsteroidPosition(a, jd);
+  for (const a of KNOWN_ASTEROIDS) bodies[a.key] = samplePosition(getKnownAsteroidTrajectory(a), jd);
   return bodies;
 }
 
@@ -72,7 +125,7 @@ function refreshOrbitCache(jd){
   if (orbitCache.jd !== null && Math.abs(jd - orbitCache.jd) < 25) return;
   orbitCache.jd = jd;
   for (const p of PLANETS) orbitCache.paths[p.key] = planetOrbitPath(p, jd, 160);
-  for (const a of KNOWN_ASTEROIDS) orbitCache.paths[a.key] = knownAsteroidOrbitPath(a, 160);
+  for (const a of KNOWN_ASTEROIDS) orbitCache.paths[a.key] = decimatePath(getKnownAsteroidTrajectory(a));
 }
 
 // Finite-difference heliocentric velocity (AU/day) for any tracked body,
@@ -91,7 +144,7 @@ function bodyVelocity(key, jd){
 // hidden or unreachable behind a panel.
 // ===========================================================
 const headerEl = document.querySelector('.hud-top');
-const footerEl = document.querySelector('.tab-bar');
+const footerEl = document.querySelector('.bottom-panel');
 const lockPillEl = document.getElementById('lockPill');
 const dockElForSafeArea = document.getElementById('bodyDock');
 const zoomDockEl = document.querySelector('.zoom-dock');
@@ -410,7 +463,7 @@ canvas.addEventListener('pointerup', endPointer);
 canvas.addEventListener('pointercancel', e => {
   if ((placing === 'point' && e.pointerId === placePointerId) ||
       (placing === 'vector' && e.pointerId === placeAimPointerId)){
-    endPlacement(true);
+    endPlacement();
   }
   pointers.delete(e.pointerId);
   resetGestureRefs();
@@ -464,31 +517,30 @@ function wireSheet(sheetId, backdropId, openBtnId, closeBtnId, nonModal=false){
   return { open, close };
 }
 wireSheet('infoSheet','infoBackdrop','btnInfo','btnCloseInfo');
-const asteroidSheetCtl = wireSheet('asteroidSheet','sheetBackdrop','btnAsteroids','btnCloseSheet', true);
-const locationSheetCtl = wireSheet('locationSheet','locationBackdrop','btnLocation','btnCloseLocation', true);
-const timeSheetCtl = wireSheet('timeSheet','timeBackdrop','btnTabTime','btnCloseTime', true);
 
-// Bottom tab bar: only one of {Temps, Astéroïdes, Fusée, Position} is
-// open at a time. Each button already has its own "open" listener via
-// wireSheet above (or below, for the rocket sheet) — this just makes
-// sure the *other* sheets get out of the way and the tab bar reflects
-// which one is active, regardless of listener registration order.
-const TAB_SHEET_IDS = ['timeSheet', 'asteroidSheet', 'rocketSheet', 'locationSheet'];
-const TAB_BTN_IDS = { timeSheet:'btnTabTime', asteroidSheet:'btnAsteroids', rocketSheet:'btnRocket', locationSheet:'btnLocation' };
-function wireTabExclusive(btnId, sheetElId){
-  document.getElementById(btnId).addEventListener('click', () => {
-    document.querySelectorAll('.tab-bar .tab-btn').forEach(b => b.classList.remove('active'));
-    document.getElementById(btnId).classList.add('active');
-    TAB_SHEET_IDS.forEach(id => { if (id !== sheetElId) document.getElementById(id).classList.add('hidden'); });
-    requestAnimationFrame(updateSafeArea);
+// Bottom panel: always expanded (map keeps the top ~2/3 of the screen via
+// the safe-area mechanism below). The 4 tabs never open/close a sheet —
+// they just switch which pane is visible inside the one permanent panel,
+// so the map stays interactive and the trajectory preview never has to
+// be interrupted by a panel opening or closing.
+const TAB_PANE_IDS = { time:'paneTime', asteroids:'paneAsteroids', rocket:'paneRocket', location:'paneLocation' };
+const TAB_BTN_IDS = { time:'btnTabTime', asteroids:'btnAsteroids', rocket:'btnRocket', location:'btnLocation' };
+function switchTab(tabKey){
+  Object.entries(TAB_PANE_IDS).forEach(([k, paneId]) => {
+    document.getElementById(paneId).classList.toggle('hidden', k !== tabKey);
   });
+  document.querySelectorAll('.tab-bar .tab-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById(TAB_BTN_IDS[tabKey]).classList.add('active');
+  if (tabKey !== 'asteroids' && tabKey !== 'rocket') clearPreview();
+  else schedulePreview();
 }
-Object.entries(TAB_BTN_IDS).forEach(([sheetId, btnId]) => wireTabExclusive(btnId, sheetId));
-['btnCloseTime','btnCloseSheet','btnCloseRocket','btnCloseLocation'].forEach(id => {
-  document.getElementById(id).addEventListener('click', () => {
-    document.querySelectorAll('.tab-bar .tab-btn').forEach(b => b.classList.remove('active'));
-  });
+Object.entries(TAB_BTN_IDS).forEach(([tabKey, btnId]) => {
+  document.getElementById(btnId).addEventListener('click', () => switchTab(tabKey));
 });
+// Initial pane visibility is set in the HTML (paneTime visible, others
+// hidden) and btnTabTime's "active" class likewise — switchTab('time') is
+// invoked at the end of the script instead of here, since it also calls
+// clearPreview()/schedulePreview(), which touch state declared further down.
 
 // ===========================================================
 // "My location" ground-direction ray
@@ -600,7 +652,6 @@ function renderAsteroidList(){
       </div>`;
     el.querySelector('[data-act="focus"]').addEventListener('click', () => {
       focusOn('ast:' + a.id);
-      asteroidSheetCtl.close();
     });
     el.querySelector('[data-act="del"]').addEventListener('click', () => {
       asteroids = asteroids.filter(x => x.id !== a.id);
@@ -753,8 +804,6 @@ document.getElementById('btnGenerateImpactor').addEventListener('click', () => {
 // ===========================================================
 // Rocket: launch from Earth
 // ===========================================================
-const rocketSheetCtl = wireSheet('rocketSheet','rocketBackdrop','btnRocket','btnCloseRocket', true);
-
 // Launch date: a single slider, no popup/keyboard entry needed, so the
 // map + preview trajectory stay visible and update live while dragging.
 // A checkbox switches its range between a wide coarse sweep (±10 years)
@@ -927,7 +976,6 @@ function renderRocketList(){
       </div>`;
     el.querySelector('[data-act="focus"]').addEventListener('click', () => {
       focusOn('roc:' + r.id);
-      rocketSheetCtl.close();
     });
     el.querySelector('[data-act="del"]').addEventListener('click', () => {
       rockets = rockets.filter(x => x.id !== r.id);
@@ -945,7 +993,7 @@ function renderRocketList(){
 // precise calculation via "Calculer" / "Lancer".
 // ===========================================================
 let activePreview = null; // { trajectory, color }
-let activeCheckpoints = null; // { points:[{jd,rx,ry,tx,ty,label}], targetColor }
+let activeCheckpoints = null; // { rocketPoints:[{jd,x,y,label}], tracks:[{key,color,points}], bestKey }
 let previewTimer = null;
 
 function clearPreview(){ activePreview = null; activeCheckpoints = null; }
@@ -978,7 +1026,7 @@ function computePreview(){
     } else if (!rocketSheetEl.classList.contains('hidden')){
       const burn = readRocketBurn();
       if (!Number.isFinite(burn.deltaVKms) || burn.deltaVKms <= 0){
-        rocReadoutEl.textContent = ''; return;
+        rocReadoutEl.textContent = ''; activeCheckpoints = null; return;
       }
       const launchJD = readRocketLaunchJD();
       const earthPos = computeBodiesNow(launchJD).earth;
@@ -995,7 +1043,6 @@ function computePreview(){
       if (!best){
         rocReadoutEl.classList.remove('hit');
         rocReadoutEl.textContent = 'Aucun objet suivi à proximité de cette trajectoire pour le moment.';
-        activeCheckpoints = null;
       } else {
         const isHit = best.minAU <= interceptThresholdAU && best.isAsteroid;
         rocReadoutEl.classList.toggle('hit', isHit);
@@ -1004,40 +1051,40 @@ function computePreview(){
         rocReadoutEl.textContent = isHit
           ? `🎯 INTERCEPTION : ${best.name} à ${km} km le ${when}`
           : `Approche la plus proche : ${best.name} à ${km} km le ${when} (seuil : ${(interceptThresholdAU*AU_KM).toLocaleString('fr-FR',{maximumFractionDigits:0})} km)`;
-
-        // Time-synchronized checkpoints: show where the rocket AND the
-        // target body actually are at the same handful of moments, so
-        // "the paths cross" can be told apart from "they're there at
-        // the same time" — which is what an actual interception needs.
-        const jd0 = trajectory[0].jd, jd1 = trajectory[trajectory.length-1].jd;
-        const nCk = 6;
-        const points = [];
-        for (let i = 1; i <= nCk; i++){
-          const t = jd0 + (jd1 - jd0) * i / (nCk + 1);
-          const rp = samplePosition(trajectory, t);
-          const tp = resolveTargetPosition(best.key, t);
-          if (rp && tp) points.push({ jd:t, rx:rp.x, ry:rp.y, tx:tp.x, ty:tp.y, label:'+'+Math.round(t-launchJD)+'j' });
-        }
-        const targetMeta = ALL_BODY_META.find(b => b.key === best.key);
-        activeCheckpoints = { points, targetColor: targetMeta ? targetMeta.color : '#6fe3d6', targetName: best.name };
       }
+
+      // Time-synchronized checkpoints: show where the rocket AND *every*
+      // tracked astre (planets, Lune, astéroïdes connus) actually are at
+      // the same handful of moments — not just the closest target — so
+      // "the paths cross" can be told apart from "they're there at the
+      // same time", which is what a real interception needs. The closest
+      // tracked object (if any) is additionally linked to the rocket with
+      // a dashed line, at each checkpoint, to call out the aiming target.
+      const jd0 = trajectory[0].jd, jd1 = trajectory[trajectory.length-1].jd;
+      const nCk = 6;
+      const rocketPoints = [];
+      for (let i = 1; i <= nCk; i++){
+        const t = jd0 + (jd1 - jd0) * i / (nCk + 1);
+        const rp = samplePosition(trajectory, t);
+        if (rp) rocketPoints.push({ jd:t, x:rp.x, y:rp.y, label:'+'+Math.round(t-launchJD)+'j' });
+      }
+      const tracks = ALL_BODY_META
+        .filter(b => b.key !== 'sun')
+        .map(b => ({ key:b.key, color:b.color, points: rocketPoints.map(cp => resolveTargetPosition(b.key, cp.jd)) }))
+        .filter(tr => tr.points.length === rocketPoints.length && tr.points.every(p => p));
+      activeCheckpoints = rocketPoints.length ? { rocketPoints, tracks, bestKey: best ? best.key : null } : null;
     }
   } catch(e){ /* ignore transient bad input while typing */ }
 }
 
-const asteroidSheetEl = document.getElementById('asteroidSheet');
-const rocketSheetEl = document.getElementById('rocketSheet');
+const asteroidSheetEl = document.getElementById('paneAsteroids');
+const rocketSheetEl = document.getElementById('paneRocket');
 ['fAst_dist','fAst_speed','fAst_angle','fAst_incl','fAst_lon','fAst_span'].forEach(id => {
   document.getElementById(id).addEventListener('input', schedulePreview);
 });
 ['fRoc_dv','fRoc_angle','fRoc_incl','fRoc_span'].forEach(id => {
   document.getElementById(id).addEventListener('input', schedulePreview);
 });
-document.getElementById('btnAsteroids').addEventListener('click', schedulePreview);
-document.getElementById('btnCloseSheet').addEventListener('click', clearPreview);
-document.getElementById('btnCloseRocket').addEventListener('click', clearPreview);
-document.getElementById('sheetBackdrop').addEventListener('click', clearPreview);
-document.getElementById('rocketBackdrop').addEventListener('click', clearPreview);
 
 // ===========================================================
 // Asteroid: place-on-map mode
@@ -1067,7 +1114,6 @@ function circularSpeedKms(distAU){
 }
 
 document.getElementById('btnPlaceOnMap').addEventListener('click', () => {
-  asteroidSheetCtl.close();
   placeSpeedBeforeHold = speed; setSpeed(0);
   placing = 'point';
   placePointerId = null; placeAimPointerId = null;
@@ -1076,15 +1122,14 @@ document.getElementById('btnPlaceOnMap').addEventListener('click', () => {
   placeBanner.classList.remove('hidden');
 });
 
-function endPlacement(reopenSheet){
+function endPlacement(){
   placing = null; placePointerId = null; placeAimPointerId = null;
   placePointWorld = null; placeDragWorld = null;
   btnPlaceCircular.classList.add('hidden');
   placeBanner.classList.add('hidden');
   setSpeed(placeSpeedBeforeHold);
-  if (reopenSheet) asteroidSheetCtl.open();
 }
-document.getElementById('btnPlaceCancel').addEventListener('click', () => endPlacement(true));
+document.getElementById('btnPlaceCancel').addEventListener('click', () => endPlacement());
 
 // Step 1 complete: position is set, now waiting for a second, independent
 // gesture to aim the direction/speed.
@@ -1142,7 +1187,7 @@ function finalizePlacement(){
   document.getElementById('fAst_lon').value = lonDeg.toFixed(1);
   document.getElementById('fAst_incl').value = '0';
 
-  endPlacement(true);
+  endPlacement();
   schedulePreview();
   toast('Position et vitesse définies depuis la carte — vérifiez puis calculez');
 }
@@ -1378,23 +1423,35 @@ function frame(now){
     }
   }
 
-  // time-synchronized checkpoints: "the rocket is here when the target
-  // is there" pairs, connected by a faint line, so aiming for an actual
-  // interception (not just a crossing path) is visually tractable.
+  // Time-synchronized checkpoints: at each of a handful of moments along
+  // the rocket's preview trajectory, show where the rocket AND *every*
+  // tracked astre actually are — not just the closest one — so "the paths
+  // cross" can be told apart from "they're there at the same time". The
+  // closest tracked object (if any) is additionally linked to the rocket
+  // by a faint dashed line at each checkpoint, to call out the aiming
+  // target without hiding where everything else is at that same instant.
   if (activeCheckpoints){
-    for (const cp of activeCheckpoints.points){
-      const r = renderer.worldToScreen(cp.rx, cp.ry);
-      const t = renderer.worldToScreen(cp.tx, cp.ty);
-      renderer.ctx.save();
-      renderer.ctx.setLineDash([2,3]);
-      renderer.ctx.strokeStyle = 'rgba(255,255,255,0.25)';
-      renderer.ctx.lineWidth = 1;
-      renderer.ctx.beginPath();
-      renderer.ctx.moveTo(r.sx, r.sy); renderer.ctx.lineTo(t.sx, t.sy);
-      renderer.ctx.stroke();
-      renderer.ctx.restore();
+    for (let i = 0; i < activeCheckpoints.rocketPoints.length; i++){
+      const cp = activeCheckpoints.rocketPoints[i];
+      const r = renderer.worldToScreen(cp.x, cp.y);
+      for (const track of activeCheckpoints.tracks){
+        const p = track.points[i];
+        if (!p) continue;
+        const t = renderer.worldToScreen(p.x, p.y);
+        if (track.key === activeCheckpoints.bestKey){
+          renderer.ctx.save();
+          renderer.ctx.setLineDash([2,3]);
+          renderer.ctx.strokeStyle = 'rgba(255,255,255,0.25)';
+          renderer.ctx.lineWidth = 1;
+          renderer.ctx.beginPath();
+          renderer.ctx.moveTo(r.sx, r.sy); renderer.ctx.lineTo(t.sx, t.sy);
+          renderer.ctx.stroke();
+          renderer.ctx.restore();
+        }
+        const isBest = track.key === activeCheckpoints.bestKey;
+        renderer.drawTick(t.sx, t.sy, track.color, isBest ? cp.label : '', true);
+      }
       renderer.drawTick(r.sx, r.sy, '#ffb454', cp.label, false);
-      renderer.drawTick(t.sx, t.sy, activeCheckpoints.targetColor, cp.label, true);
     }
   }
 
@@ -1473,6 +1530,7 @@ function frame(now){
 renderer.cam.x = 0; renderer.cam.y = 0; renderer.cam.zoom = 80;
 setSpeed(2);
 updateSafeArea();
+switchTab('time');
 requestAnimationFrame(frame);
 
 // ===========================================================

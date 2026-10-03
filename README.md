@@ -69,7 +69,11 @@ conçue mobile-first et installable en PWA.
   met à jour automatiquement au rechargement dès qu'une nouvelle version
   est en ligne (stratégie "réseau d'abord", pas besoin de vider le cache).
 - Astéroïdes réels (Apophis, Bennu, Éros, Cérès, Vesta) modélisés comme
-  des astres à part entière, avec leurs propres éléments orbitaux.
+  des astres à part entière, avec leurs propres éléments orbitaux, propagés
+  par intégration à N corps (pas par simple ellipse képlérienne figée) sur
+  une fenêtre de ±20 ans autour d'aujourd'hui — ce qui permet de voir
+  correctement un vrai survol rapproché, comme celui d'Apophis à ~32 000 km
+  de la Terre le 13 avril 2029.
 - Panneaux astéroïde/fusée : aperçu de trajectoire recalculé en direct
   à chaque changement de paramètre, sans jamais bloquer la carte.
 - Placement d'un astéroïde sur la carte en deux gestes indépendants

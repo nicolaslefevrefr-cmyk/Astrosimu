@@ -85,21 +85,53 @@ export function moonPositionGeocentric(jd){
 }
 
 // Real, named asteroid -> heliocentric position (AU), static osculating
-// elements with linear mean-anomaly propagation (see KNOWN_ASTEROIDS).
+// two-body (unperturbed) orbit. Used only as the seed state for the real,
+// gravitationally-perturbed trajectory built in physics/known-asteroids —
+// see that module for why a pure two-body model can't be used directly.
+//
+// IMPORTANT: unlike PLANETS (whose `peri` field is the *longitude* of
+// perihelion ϖ = Ω+ω, the Meeus/VSOP almanac convention), KNOWN_ASTEROIDS'
+// `peri` field is the *argument* of perihelion ω itself, which is how
+// JPL's Small-Body Database and most asteroid orbit pages actually publish
+// it. So here the orbital-plane rotation uses ast.peri directly as w,
+// instead of elementsToPosition's `w = peri - node` (that subtraction is
+// only correct when `peri` is really ϖ). Mixing the two conventions was an
+// earlier bug: it silently rotated every known asteroid's orbit by its own
+// node angle, which happened to leave the orbit's shape and solar distance
+// looking plausible while putting it in the wrong place in space — e.g.
+// showing Apophis ~2 AU from Earth on 2029-04-13 instead of ~32,000 km.
 export function knownAsteroidPosition(ast, jd){
-  const M = ast.M0 + ast.nDeg * (jd - ast.epoch);
-  const L = ast.peri + M;
-  return { ...elementsToPosition(ast.a, ast.e, ast.I, L, ast.peri, ast.node), a:ast.a, e:ast.e, I:ast.I };
+  const Mdeg = ast.M0 + ast.nDeg * (jd - ast.epoch);
+  const E = solveKepler(Mdeg, ast.e);
+  const xp = ast.a * (Math.cos(E) - ast.e);
+  const yp = ast.a * Math.sqrt(1 - ast.e*ast.e) * Math.sin(E);
+  return { ...orbitToEcliptic(xp, yp, ast.I, ast.peri, ast.node), a:ast.a, e:ast.e, I:ast.I };
+}
+
+// Heliocentric state vector [x,y,z,vx,vy,vz] (AU, AU/day) at the asteroid's
+// stored epoch, obtained by central-difference differentiating the same
+// two-body position formula above. This is only ever used once per asteroid,
+// as the seed for a real N-body integration (physics.js) — it is not used
+// to render positions directly, so a tiny finite-difference velocity is
+// more than accurate enough.
+export function knownAsteroidStateAtEpoch(ast){
+  const dt = 0.0005; // days
+  const p0 = knownAsteroidPosition(ast, ast.epoch - dt);
+  const p1 = knownAsteroidPosition(ast, ast.epoch + dt);
+  const p = knownAsteroidPosition(ast, ast.epoch);
+  return [
+    p.x, p.y, p.z,
+    (p1.x - p0.x) / (2*dt), (p1.y - p0.y) / (2*dt), (p1.z - p0.z) / (2*dt),
+  ];
 }
 
 export function knownAsteroidOrbitPath(ast, n = 160){
-  const w = ast.peri - ast.node;
   const pts = [];
   for (let i = 0; i <= n; i++){
     const E = (i / n) * 2 * Math.PI;
     const xp = ast.a * (Math.cos(E) - ast.e);
     const yp = ast.a * Math.sqrt(1 - ast.e*ast.e) * Math.sin(E);
-    pts.push(orbitToEcliptic(xp, yp, ast.I, w, ast.node));
+    pts.push(orbitToEcliptic(xp, yp, ast.I, ast.peri, ast.node));
   }
   return pts;
 }

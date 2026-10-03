@@ -41,181 +41,272 @@
 <!-- ============ BODY QUICK-SELECT DOCK ============ -->
 <nav class="body-dock" id="bodyDock" aria-label="Accès rapide aux astres"></nav>
 
-<!-- ============ TIME SHEET ============ -->
-<div class="sheet-backdrop hidden" id="timeBackdrop"></div>
-<div class="sheet hidden sheet-nonmodal" id="timeSheet" role="dialog" aria-label="Gestion du temps">
-  <div class="sheet-handle"></div>
-  <div class="sheet-header">
-    <h2>🕐 Temps</h2>
-    <button class="icon-btn" id="btnCloseTime" aria-label="Fermer">✕</button>
-  </div>
-  <div class="sheet-body">
-    <div class="time-readout">
-      <div class="date-big" id="dateBig">--</div>
-      <div class="date-offset" id="dateOffset">t = 0</div>
-    </div>
-
-    <div class="time-row">
-      <button class="chip" id="btnPause">⏸ Pause</button>
-      <button class="chip" id="btnNow">⦿ Maintenant</button>
-    </div>
-
-    <div class="slider-block">
-      <label class="slider-label" for="speedSlider">
-        <span>Flux du temps (lecture continue)</span>
-        <span id="speedValue">0 j/s</span>
-      </label>
-      <input type="range" id="speedSlider" min="-100" max="100" step="0.5" value="0">
-    </div>
-
-    <div class="slider-block">
-      <div class="slider-label"><span>Sauts temporels (n'affecte pas la vitesse)</span><span></span></div>
-      <div class="speed-presets" id="jumpRow"></div>
-    </div>
-
-    <div class="slider-block">
-      <label class="slider-label" for="scrubSlider">
-        <span>Naviguer dans le temps</span>
-        <span id="scrubValue">±0 j</span>
-      </label>
-      <input type="range" id="scrubSlider" min="-3650" max="3650" step="1" value="0">
-    </div>
-  </div>
-</div>
-
-<!-- ============ BOTTOM TAB BAR ============ -->
-<nav class="tab-bar" id="tabBar" aria-label="Panneaux">
-  <button class="tab-btn" id="btnTabTime" aria-label="Temps">
-    <span class="tab-icon" id="tabTimeIcon">🕐</span><span class="tab-label">Temps</span>
-  </button>
-  <button class="tab-btn" id="btnAsteroids" aria-label="Astéroïdes">
-    <span class="tab-icon">☄</span><span class="tab-label">Astéroïdes</span>
-  </button>
-  <button class="tab-btn" id="btnRocket" aria-label="Fusée">
-    <span class="tab-icon">🚀</span><span class="tab-label">Fusée</span>
-  </button>
-  <button class="tab-btn" id="btnLocation" aria-label="Votre position">
-    <span class="tab-icon">📍</span><span class="tab-label">Position</span>
-  </button>
-</nav>
-
 <!-- ============ ZOOM CONTROLS (mobile-friendly) ============ -->
 <div class="zoom-dock">
   <button class="icon-btn" id="btnZoomIn" aria-label="Zoomer">＋</button>
   <button class="icon-btn" id="btnZoomOut" aria-label="Dézoomer">－</button>
 </div>
 
-<!-- ============ ASTEROID SHEET ============ -->
-<div class="sheet-backdrop hidden" id="sheetBackdrop"></div>
-<div class="sheet hidden sheet-nonmodal" id="asteroidSheet" role="dialog" aria-label="Simulation d'astéroïde">
-  <div class="sheet-handle"></div>
-  <div class="sheet-header">
-    <h2>Simulation d'astéroïde</h2>
-    <button class="icon-btn" id="btnCloseSheet" aria-label="Fermer">✕</button>
-  </div>
+<!-- ============ BOTTOM PANEL — always expanded, map keeps the top 2/3 ============ -->
+<div class="bottom-panel" id="bottomPanel">
+  <nav class="tab-bar" id="tabBar" aria-label="Panneaux">
+    <button class="tab-btn active" id="btnTabTime" aria-label="Temps">
+      <span class="tab-icon" id="tabTimeIcon">🕐</span><span class="tab-label">Temps</span>
+    </button>
+    <button class="tab-btn" id="btnAsteroids" aria-label="Astéroïdes">
+      <span class="tab-icon">☄</span><span class="tab-label">Astéroïdes</span>
+    </button>
+    <button class="tab-btn" id="btnRocket" aria-label="Fusée">
+      <span class="tab-icon">🚀</span><span class="tab-label">Fusée</span>
+    </button>
+    <button class="tab-btn" id="btnLocation" aria-label="Votre position">
+      <span class="tab-icon">📍</span><span class="tab-label">Position</span>
+    </button>
+  </nav>
 
-  <div class="sheet-body">
-    <p class="hint">
-      Définissez un état initial héliocentrique, à la main ou en le plaçant sur la carte.
-      La trajectoire est intégrée numériquement (Runge-Kutta 4) sous l'attraction
-      gravitationnelle du Soleil et des planètes, et remontée dans le passé pour
-      retrouver d'où il venait.
-    </p>
+  <div class="panel-scroll" id="panelScroll">
 
-    <div class="btn-row">
-      <button class="btn-secondary" id="btnPlaceOnMap">◎ Placer sur la carte</button>
-    </div>
-
-    <div class="field-grid">
-      <label>Distance au Soleil (UA)
-        <input type="number" id="fAst_dist" value="1.30" step="0.01" min="0.05" max="50">
-      </label>
-      <label>Vitesse (km/s)
-        <input type="number" id="fAst_speed" value="24" step="0.1" min="0.1" max="80">
-      </label>
-      <label>Angle de trajectoire (°)
-        <input type="number" id="fAst_angle" value="95" step="1" min="-180" max="180">
-      </label>
-      <label>Inclinaison (°)
-        <input type="number" id="fAst_incl" value="8" step="0.5" min="-90" max="90">
-      </label>
-      <label>Longitude au périhélie (°)
-        <input type="number" id="fAst_lon" value="40" step="1" min="0" max="360">
-      </label>
-      <label>Masse (kg)
-        <input type="number" id="fAst_mass" value="2.2e11" step="any" min="1">
-      </label>
-    </div>
-
-    <div class="field-row">
-      <label>Nom
-        <input type="text" id="fAst_name" value="2026 AA" maxlength="18">
-      </label>
-      <label>Fenêtre d'intégration (années)
-        <input type="number" id="fAst_span" value="3" min="0.5" max="15" step="0.5">
-      </label>
-    </div>
-
-    <div id="asteroidInterceptReadout" class="compute-status intercept-readout"></div>
-
-    <div class="btn-row">
-      <button class="btn-primary" id="btnAddAsteroid">Calculer la trajectoire</button>
-    </div>
-
-    <div class="variation-block">
-      <div class="hint" style="margin:0 0 8px;">
-        🎯 <strong>Générer un gros-croiseur</strong> — calcule automatiquement (précisément)
-        les paramètres qui font que cet astéroïde percute la Terre à la date choisie.
+    <!-- ---------- TEMPS ---------- -->
+    <div class="tab-pane" id="paneTime">
+      <div class="time-readout">
+        <div class="date-big" id="dateBig">--</div>
+        <div class="date-offset" id="dateOffset">t = 0</div>
       </div>
-      <div class="field-row">
-        <label>Vitesse d'impact (km/s)
-          <input type="number" id="fImp_speed" value="19" step="0.5" min="1" max="72">
-        </label>
-        <label>Angle d'approche (°)
-          <input type="number" id="fImp_angle" value="45" step="1" min="0" max="360">
-        </label>
+
+      <div class="time-row">
+        <button class="chip" id="btnPause">⏸ Pause</button>
+        <button class="chip" id="btnNow">⦿ Maintenant</button>
       </div>
+
       <div class="slider-block">
-        <label class="slider-label" for="fImp_dateSlider">
-          <span>Date d'impact</span>
-          <span id="fImp_dateValue">--</span>
+        <label class="slider-label" for="speedSlider">
+          <span>Flux du temps (lecture continue)</span>
+          <span id="speedValue">0 j/s</span>
         </label>
-        <input type="range" id="fImp_dateSlider" min="1" max="3650" step="1" value="200">
+        <input type="range" id="speedSlider" min="-100" max="100" step="0.5" value="0">
+      </div>
+
+      <div class="slider-block">
+        <div class="slider-label"><span>Sauts temporels (n'affecte pas la vitesse)</span><span></span></div>
+        <div class="speed-presets" id="jumpRow"></div>
+      </div>
+
+      <div class="slider-block">
+        <label class="slider-label" for="scrubSlider">
+          <span>Naviguer dans le temps</span>
+          <span id="scrubValue">±0 j</span>
+        </label>
+        <input type="range" id="scrubSlider" min="-3650" max="3650" step="1" value="0">
+      </div>
+    </div>
+
+    <!-- ---------- ASTÉROÏDES ---------- -->
+    <div class="tab-pane hidden" id="paneAsteroids">
+      <p class="hint">
+        Définissez un état initial héliocentrique, à la main ou en le plaçant sur la carte.
+        La trajectoire est intégrée numériquement (Runge-Kutta 4) sous l'attraction
+        gravitationnelle du Soleil et des planètes, et remontée dans le passé pour
+        retrouver d'où il venait.
+      </p>
+
+      <div class="btn-row">
+        <button class="btn-secondary" id="btnPlaceOnMap">◎ Placer sur la carte</button>
+      </div>
+
+      <div class="field-grid">
+        <label>Distance au Soleil (UA)
+          <input type="number" id="fAst_dist" value="1.30" step="0.01" min="0.05" max="50">
+        </label>
+        <label>Vitesse (km/s)
+          <input type="number" id="fAst_speed" value="24" step="0.1" min="0.1" max="80">
+        </label>
+        <label>Angle de trajectoire (°)
+          <input type="number" id="fAst_angle" value="95" step="1" min="-180" max="180">
+        </label>
+        <label>Inclinaison (°)
+          <input type="number" id="fAst_incl" value="8" step="0.5" min="-90" max="90">
+        </label>
+        <label>Longitude au périhélie (°)
+          <input type="number" id="fAst_lon" value="40" step="1" min="0" max="360">
+        </label>
+        <label>Masse (kg)
+          <input type="number" id="fAst_mass" value="2.2e11" step="any" min="1">
+        </label>
+      </div>
+
+      <div class="field-row">
+        <label>Nom
+          <input type="text" id="fAst_name" value="2026 AA" maxlength="18">
+        </label>
+        <label>Fenêtre d'intégration (années)
+          <input type="number" id="fAst_span" value="3" min="0.5" max="15" step="0.5">
+        </label>
+      </div>
+
+      <div id="asteroidInterceptReadout" class="compute-status intercept-readout"></div>
+
+      <div class="btn-row">
+        <button class="btn-primary" id="btnAddAsteroid">Calculer la trajectoire</button>
+      </div>
+
+      <div class="variation-block">
+        <div class="hint" style="margin:0 0 8px;">
+          🎯 <strong>Générer un gros-croiseur</strong> — calcule automatiquement (précisément)
+          les paramètres qui font que cet astéroïde percute la Terre à la date choisie.
+        </div>
+        <div class="field-row">
+          <label>Vitesse d'impact (km/s)
+            <input type="number" id="fImp_speed" value="19" step="0.5" min="1" max="72">
+          </label>
+          <label>Angle d'approche (°)
+            <input type="number" id="fImp_angle" value="45" step="1" min="0" max="360">
+          </label>
+        </div>
+        <div class="slider-block">
+          <label class="slider-label" for="fImp_dateSlider">
+            <span>Date d'impact</span>
+            <span id="fImp_dateValue">--</span>
+          </label>
+          <input type="range" id="fImp_dateSlider" min="1" max="3650" step="1" value="200">
+          <label class="switch-row" style="margin-top:6px;">
+            <input type="checkbox" id="fImp_fineToggle">
+            <span>Réglage fin (± 10 jours)</span>
+          </label>
+        </div>
+        <div class="btn-row">
+          <button class="btn-primary" id="btnGenerateImpactor">🎯 Générer l'impacteur</button>
+        </div>
+      </div>
+
+      <div class="variation-block">
+        <label class="switch-row">
+          <input type="checkbox" id="fAst_varToggle">
+          <span>Famille de trajectoires (± incertitude)</span>
+        </label>
+        <div class="field-row" id="variationParams">
+          <label>Marge (%)
+            <input type="number" id="fAst_margin" value="5" min="0.5" max="30" step="0.5">
+          </label>
+          <label>Échantillons
+            <input type="number" id="fAst_samples" value="24" min="4" max="60" step="2">
+          </label>
+        </div>
+      </div>
+
+      <div class="btn-row">
+        <button class="btn-secondary" id="btnClearAsteroids">Tout effacer</button>
+      </div>
+
+      <div id="asteroidList" class="asteroid-list"></div>
+      <div id="computeStatus" class="compute-status"></div>
+    </div>
+
+    <!-- ---------- FUSÉE ---------- -->
+    <div class="tab-pane hidden" id="paneRocket">
+      <p class="hint">
+        La poussée est définie par rapport au mouvement de la Terre — 0° = prograde (accélère),
+        180° = rétrograde (freine), 90°/270° = radial. La carte reste utilisable pendant que
+        vous réglez ces paramètres : la trajectoire se dessine en direct, avec des repères
+        ambre (fusée) / couleur de chaque astre reliés par un trait à l'instant choisi — pour
+        viser une vraie interception, pas seulement un croisement de trajectoires.
+      </p>
+
+      <div class="field-grid">
+        <label>Type de fusée
+          <select id="fRoc_preset"></select>
+        </label>
+        <label>Site de lancement
+          <select id="fRoc_site"></select>
+        </label>
+        <label>Delta-v (km/s)
+          <input type="number" id="fRoc_dv" value="4" step="0.1" min="0.05" max="40">
+        </label>
+        <label>Angle de poussée (°)
+          <input type="number" id="fRoc_angle" value="0" step="1" min="0" max="360">
+        </label>
+        <label>Inclinaison poussée (°)
+          <input type="number" id="fRoc_incl" value="0" step="0.5" min="-45" max="45">
+        </label>
+        <label>Masse (kg)
+          <input type="number" id="fRoc_mass" value="1500" step="1" min="1">
+        </label>
+        <label>Fenêtre (années)
+          <input type="number" id="fRoc_span" value="1.5" min="0.1" max="10" step="0.1">
+        </label>
+        <label>Seuil d'interception (km)
+          <input type="number" id="fRoc_threshold" value="100000" min="1000" max="10000000" step="1000">
+        </label>
+      </div>
+
+      <div class="slider-block">
+        <label class="slider-label" for="fRoc_dateSlider">
+          <span id="fRoc_dateLabel">Date de lancement</span>
+          <span id="fRoc_dateValue">--</span>
+        </label>
+        <input type="range" id="fRoc_dateSlider" min="-3650" max="3650" step="1" value="0">
         <label class="switch-row" style="margin-top:6px;">
-          <input type="checkbox" id="fImp_fineToggle">
+          <input type="checkbox" id="fRoc_fineToggle">
           <span>Réglage fin (± 10 jours)</span>
         </label>
       </div>
-      <div class="btn-row">
-        <button class="btn-primary" id="btnGenerateImpactor">🎯 Générer l'impacteur</button>
-      </div>
-    </div>
 
-    <div class="variation-block">
-      <label class="switch-row">
-        <input type="checkbox" id="fAst_varToggle">
-        <span>Famille de trajectoires (± incertitude)</span>
+      <div class="speed-presets">
+        <button class="preset-btn" data-ang="0">Prograde</button>
+        <button class="preset-btn" data-ang="180">Rétrograde</button>
+        <button class="preset-btn" data-ang="90">Radial ext.</button>
+        <button class="preset-btn" data-ang="270">Radial int.</button>
+        <button class="preset-btn" id="btnRocLaunchNow">Maintenant</button>
+      </div>
+
+      <div id="rocketInterceptReadout" class="compute-status intercept-readout"></div>
+
+      <label>Nom
+        <input type="text" id="fRoc_name" value="Fusée 1" maxlength="18">
       </label>
-      <div class="field-row" id="variationParams">
-        <label>Marge (%)
-          <input type="number" id="fAst_margin" value="5" min="0.5" max="30" step="0.5">
-        </label>
-        <label>Échantillons
-          <input type="number" id="fAst_samples" value="24" min="4" max="60" step="2">
-        </label>
+
+      <div class="btn-row">
+        <button class="btn-primary" id="btnLaunchRocket">Lancer</button>
       </div>
+
+      <div class="variation-block">
+        <label class="switch-row">
+          <input type="checkbox" id="fRoc_varToggle">
+          <span>Famille de trajectoires (± incertitude)</span>
+        </label>
+        <div class="field-row" id="rocketVariationParams">
+          <label>Marge (%)
+            <input type="number" id="fRoc_margin" value="5" min="0.5" max="30" step="0.5">
+          </label>
+          <label>Échantillons
+            <input type="number" id="fRoc_samples" value="24" min="4" max="60" step="2">
+          </label>
+        </div>
+      </div>
+
+      <div class="btn-row">
+        <button class="btn-secondary" id="btnClearRockets">Tout effacer</button>
+      </div>
+
+      <div id="rocketList" class="asteroid-list"></div>
+      <div id="rocketComputeStatus" class="compute-status"></div>
     </div>
 
-    <div class="btn-row">
-      <button class="btn-secondary" id="btnClearAsteroids">Tout effacer</button>
+    <!-- ---------- POSITION ---------- -->
+    <div class="tab-pane hidden" id="paneLocation">
+      <p class="hint">
+        Choisissez une ville : un repère partira du centre de la Terre dans cette direction,
+        pour visualiser l'alignement des astres vus depuis cet endroit. Le repère tourne avec
+        la rotation réelle de la Terre (temps sidéral) et son déplacement orbital.
+      </p>
+      <label>Ville
+        <select id="locationSelect"></select>
+      </label>
     </div>
 
-    <div id="asteroidList" class="asteroid-list"></div>
-    <div id="computeStatus" class="compute-status"></div>
   </div>
 </div>
 
-<!-- ============ BODY INFO SHEET ============ -->
+<!-- ============ BODY INFO SHEET (floating overlay) ============ -->
 <div class="sheet-backdrop hidden" id="bodyInfoBackdrop"></div>
 <div class="sheet hidden" id="bodyInfoSheet" role="dialog" aria-label="Informations sur l'astre">
   <div class="sheet-handle"></div>
@@ -230,125 +321,7 @@
   </div>
 </div>
 
-<!-- ============ ROCKET SHEET ============ -->
-<div class="sheet-backdrop hidden" id="rocketBackdrop"></div>
-<div class="sheet hidden sheet-nonmodal" id="rocketSheet" role="dialog" aria-label="Lancement de fusée">
-  <div class="sheet-handle"></div>
-  <div class="sheet-header">
-    <h2>🚀 Lancer une fusée</h2>
-    <button class="icon-btn" id="btnCloseRocket" aria-label="Fermer">✕</button>
-  </div>
-  <div class="sheet-body">
-    <p class="hint">
-      La poussée est définie par rapport au mouvement de la Terre — 0° = prograde (accélère),
-      180° = rétrograde (freine), 90°/270° = radial. La carte reste utilisable pendant que
-      vous réglez ces paramètres : la trajectoire se dessine en direct, avec des repères
-      ambre (fusée) / couleur de la cible reliés par un trait — chaque paire montre où se
-      trouvent les deux au même instant, pour viser une vraie interception.
-    </p>
-
-    <div class="field-grid">
-      <label>Type de fusée
-        <select id="fRoc_preset"></select>
-      </label>
-      <label>Site de lancement
-        <select id="fRoc_site"></select>
-      </label>
-      <label>Delta-v (km/s)
-        <input type="number" id="fRoc_dv" value="4" step="0.1" min="0.05" max="40">
-      </label>
-      <label>Angle de poussée (°)
-        <input type="number" id="fRoc_angle" value="0" step="1" min="0" max="360">
-      </label>
-      <label>Inclinaison poussée (°)
-        <input type="number" id="fRoc_incl" value="0" step="0.5" min="-45" max="45">
-      </label>
-      <label>Masse (kg)
-        <input type="number" id="fRoc_mass" value="1500" step="1" min="1">
-      </label>
-      <label>Fenêtre (années)
-        <input type="number" id="fRoc_span" value="1.5" min="0.1" max="10" step="0.1">
-      </label>
-      <label>Seuil d'interception (km)
-        <input type="number" id="fRoc_threshold" value="100000" min="1000" max="10000000" step="1000">
-      </label>
-    </div>
-
-    <div class="slider-block">
-      <label class="slider-label" for="fRoc_dateSlider">
-        <span id="fRoc_dateLabel">Date de lancement</span>
-        <span id="fRoc_dateValue">--</span>
-      </label>
-      <input type="range" id="fRoc_dateSlider" min="-3650" max="3650" step="1" value="0">
-      <label class="switch-row" style="margin-top:6px;">
-        <input type="checkbox" id="fRoc_fineToggle">
-        <span>Réglage fin (± 10 jours)</span>
-      </label>
-    </div>
-
-    <div class="speed-presets">
-      <button class="preset-btn" data-ang="0">Prograde</button>
-      <button class="preset-btn" data-ang="180">Rétrograde</button>
-      <button class="preset-btn" data-ang="90">Radial ext.</button>
-      <button class="preset-btn" data-ang="270">Radial int.</button>
-      <button class="preset-btn" id="btnRocLaunchNow">Maintenant</button>
-    </div>
-
-    <div id="rocketInterceptReadout" class="compute-status intercept-readout"></div>
-
-    <label>Nom
-      <input type="text" id="fRoc_name" value="Fusée 1" maxlength="18">
-    </label>
-
-    <div class="btn-row">
-      <button class="btn-primary" id="btnLaunchRocket">Lancer</button>
-    </div>
-
-    <div class="variation-block">
-      <label class="switch-row">
-        <input type="checkbox" id="fRoc_varToggle">
-        <span>Famille de trajectoires (± incertitude)</span>
-      </label>
-      <div class="field-row" id="rocketVariationParams">
-        <label>Marge (%)
-          <input type="number" id="fRoc_margin" value="5" min="0.5" max="30" step="0.5">
-        </label>
-        <label>Échantillons
-          <input type="number" id="fRoc_samples" value="24" min="4" max="60" step="2">
-        </label>
-      </div>
-    </div>
-
-    <div class="btn-row">
-      <button class="btn-secondary" id="btnClearRockets">Tout effacer</button>
-    </div>
-
-    <div id="rocketList" class="asteroid-list"></div>
-    <div id="rocketComputeStatus" class="compute-status"></div>
-  </div>
-</div>
-
-<!-- ============ LOCATION SHEET ============ -->
-<div class="sheet-backdrop hidden" id="locationBackdrop"></div>
-<div class="sheet hidden sheet-nonmodal" id="locationSheet" role="dialog" aria-label="Votre position sur Terre">
-  <div class="sheet-handle"></div>
-  <div class="sheet-header">
-    <h2>Votre position</h2>
-    <button class="icon-btn" id="btnCloseLocation" aria-label="Fermer">✕</button>
-  </div>
-  <div class="sheet-body">
-    <p class="hint">
-      Choisissez une ville : un repère partira du centre de la Terre dans cette direction,
-      pour visualiser l'alignement des astres vus depuis cet endroit. Le repère tourne avec
-      la rotation réelle de la Terre (temps sidéral) et son déplacement orbital.
-    </p>
-    <label>Ville
-      <select id="locationSelect"></select>
-    </label>
-  </div>
-</div>
-
-<!-- ============ INFO SHEET ============ -->
+<!-- ============ INFO SHEET (floating overlay) ============ -->
 <div class="sheet-backdrop hidden" id="infoBackdrop"></div>
 <div class="sheet hidden" id="infoSheet" role="dialog" aria-label="Informations">
   <div class="sheet-handle"></div>
@@ -365,9 +338,15 @@
     </p>
     <p class="hint">
       Apophis, Bennu, Éros, Cérès et Vesta sont modélisés avec leurs éléments orbitaux réels
-      (sources JPL/Horizons), figés à une époque de référence : la position est propagée par
-      simple anomalie moyenne linéaire, sans précession séculaire — fiable près de l'époque
-      indiquée, dérive progressivement au-delà de quelques années.
+      (sources JPL/Horizons). Leur trajectoire n'est pas une simple ellipse figée : elle est
+      calculée par intégration numérique à N corps (Soleil + 8 planètes), sur une fenêtre de
+      ±20 ans autour d'aujourd'hui — exactement le même moteur que pour les astéroïdes créés
+      par l'utilisateur. Cela permet de représenter correctement un survol rapproché réel,
+      comme celui d'Apophis à environ 32 000 km de la Terre le 13 avril 2029 (plus proche que
+      les satellites géostationnaires), et la façon dont cette rencontre modifie durablement
+      son orbite. En dehors de cette fenêtre de ±20 ans, la position reste figée à la valeur de
+      bord la plus proche plutôt que d'extrapoler sans limite. Ce calcul prend jusqu'à une
+      seconde au premier chargement.
     </p>
     <p class="hint">
       Les astéroïdes sont propagés comme particules de masse négligeable : leur trajectoire ne dépend
